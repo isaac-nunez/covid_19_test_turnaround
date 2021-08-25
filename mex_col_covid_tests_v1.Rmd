@@ -1,0 +1,1739 @@
+---
+title: "Eficiencia de pruebas covid-19 en dos países latinoamericanos"
+output: html_notebook
+---
+
+This is the code used for our study of RT-PCR test efficiency in Mexico and Colombia using open data.
+
+```{r setup, include = F}
+library(tidyverse);library(data.table);library(lubridate);library(zoo);library(patchwork);
+library(devtools); library(mxmaps)
+Sys.setlocale("LC_ALL", locale= "English")
+
+#Bases a utilizar
+load("base_completa_mex_full_v2.RDa")
+load("base_colombia_v1.RDa")
+load("inegi_sum_v2.RDa")
+
+```
+
+For both countries we included data from the date of the first reported case (February 28th 2020).
+
+Mexico's databases do not include date of testing, thus, we considered the date in which a patient first appeared as the date in which the person was tested. For this we joined all dataframes, one by one, and included only the new patients. 
+
+The code is extremely slow and I advise saving the dataframe so as to not rerun the code.
+```{r names for mexico datatable, include = F, warning = F}
+#Preamble for datatables' names
+num_31 <- c("01","02", "03", "04", "05", "06", "07", "08", "09", 10:31)
+num_30 <- c("01","02", "03", "04", "05", "06", "07", "08", "09", 10:30)
+num_10 <- c("01","02", "03", "04", "05", "06", "07", "08", "09", 10)
+num_28 <- c("01","02", "03", "04", "05", "06", "07", "08", "09", 10:28)
+
+bases_csv <- c(str_c("E:/Protocolos de investigación/Bases de datos diarias/20",rep("04",19), seq(12,30,1) ,"COVID19MEXICO.csv"),
+               str_c("E:/Protocolos de investigación/Bases de datos diarias/20",rep("05",31), num_31 ,"COVID19MEXICO.csv"),
+               str_c("E:/Protocolos de investigación/Bases de datos diarias/20",rep("06",30), num_30 ,"COVID19MEXICO.csv"),
+               str_c("E:/Protocolos de investigación/Bases de datos diarias/20",rep("07",31), num_31 ,"COVID19MEXICO.csv"),
+               str_c("E:/Protocolos de investigación/Bases de datos diarias/20",rep("08",31), num_31 ,"COVID19MEXICO.csv"),
+               str_c("E:/Protocolos de investigación/Bases de datos diarias/20",rep("09",30), num_30 ,"COVID19MEXICO.csv"),
+               str_c("E:/Protocolos de investigación/Bases de datos diarias/20",rep("10",31), num_31 ,"COVID19MEXICO.csv"),
+               str_c("E:/Protocolos de investigación/Bases de datos diarias/20",rep("11",30), num_30 ,"COVID19MEXICO.csv"),
+               str_c("E:/Protocolos de investigación/Bases de datos diarias/20",rep("12",31), num_31 ,"COVID19MEXICO.csv"),
+               str_c("E:/Protocolos de investigación/Bases de datos diarias/21",rep("01",31), num_31 ,"COVID19MEXICO.csv"),
+               str_c("E:/Protocolos de investigación/Bases de datos diarias/21",rep("02",28), num_28 ,"COVID19MEXICO.csv"),
+               str_c("E:/Protocolos de investigación/Bases de datos diarias/21",rep("03",31), num_31 ,"COVID19MEXICO.csv")
+)
+
+drop_interest <- c("ORIGEN",	"SECTOR",	"ENTIDAD_UM",	"SEXO",	"ENTIDAD_NAC",	"ENTIDAD_RES",	"MUNICIPIO_RES",	"TIPO_PACIENTE",	"INTUBADO",	"NEUMONIA",	"EDAD",	"NACIONALIDAD",	"EMBARAZO",	"HABLA_LENGUA_INDIG",	"DIABETES",	"EPOC",	"ASMA",	"INMUSUPR",	"HIPERTENSION",	"OTRA_COM",	"CARDIOVASCULAR",	"OBESIDAD",	"RENAL_CRONICA",	"TABAQUISMO",	"OTRO_CASO",	"MIGRANTE",	"PAIS_NACIONALIDAD"	,"PAIS_ORIGEN", "CLASIFICACION_FINAL", "TOMA_MUESTRA", "TOMA_MUESTRA_LAB", "OTRO_CASO", "INDIGENA", "RESULTADO_ANTIGENO", "TOMA_MUESTRA_ANTIGENO")	
+
+var_interest <- c("ID_REGISTRO", "ORIGEN",	"SECTOR",	"ENTIDAD_UM",	"SEXO",	"ENTIDAD_NAC",	"ENTIDAD_RES",	"MUNICIPIO_RES",	"TIPO_PACIENTE",	"INTUBADO",	"NEUMONIA",	"EDAD",	"NACIONALIDAD",	"EMBARAZO",	"HABLA_LENGUA_INDIG",	"DIABETES",	"EPOC",	"ASMA",	"INMUSUPR",	"HIPERTENSION",	"OTRA_COM",	"CARDIOVASCULAR",	"OBESIDAD",	"RENAL_CRONICA",	"TABAQUISMO",	"MIGRANTE",	"PAIS_NACIONALIDAD"	,"PAIS_ORIGEN", "CLASIFICACION_FINAL", "TOMA_MUESTRA", "TOMA_MUESTRA_LAB", "OTRO_CASO", "INDIGENA", "RESULTADO_ANTIGENO", "TOMA_MUESTRA_ANTIGENO")	
+
+entidades_df <- data.table(ENTIDAD_RES_NOM = c("AGUASCALIENTES", "BAJA CALIFORNIA", "BAJA CALIFORNIA SUR", "CAMPECHE", "COAHUILA",
+                                          "COLIMA","CHIAPAS","CHIHUAHUA", "CIUDAD DE MÉXICO","DURANGO","GUANAJUATO","GUERRERO","HIDALGO","JALISCO","ESTADO DE MÉXICO",
+                                          "MICHOACÁN","MORELOS","NAYARIT","NUEVO LEÓN","OAXACA","PUEBLA","QUERÉTARO", "QUINTANA ROO","SAN LUIS POTOSÍ",
+                                          "SINALOA","SONORA","TABASCO","TAMAULIPAS","TLAXCALA","VERACRUZ","YUCATÁN","ZACATECAS",
+                                          "ESTADOS UNIDOS MEXICANOS", "NO_APLICA", "SE_IGNORA", "NO_ESPECIFICADO"),
+                      ENTIDAD_RES = 
+                        c(1:32,36,97:99))
+```
+
+
+```{r other names for mexico datatable, include = F, warning = F, eval = F}
+nombres_bases <- c(str_c("covid_abril_", 12:30),
+                   str_c("covid_mayo_", num_31),
+                   str_c("covid_junio_", num_30),
+                   str_c("covid_julio_", num_31),
+                   str_c("covid_agosto_", num_31),
+                   str_c("covid_septiembre_", num_30),
+                   str_c("covid_octubre_", num_31),
+                   str_c("covid_noviembre_", num_30),
+                   str_c("covid_diciembre_", num_31),
+                   str_c("covid_enero_", num_31),
+                   str_c("covid_febrero_", num_28),
+                   str_c("covid_marzo_", num_31),
+                   str_c("covid_abril_", num_30),
+                   str_c("covid_mayo_", num_31)
+                   )
+
+nombres_bases_pendientes <- c(str_c("covid_abril_", 12:30, "_pendiente"),
+                   str_c("covid_mayo_", num_31,"_pendiente"),
+                   str_c("covid_junio_", num_30,"_pendiente"),
+                   str_c("covid_julio_", num_31,"_pendiente"),
+                   str_c("covid_agosto_", num_31,"_pendiente"),
+                   str_c("covid_septiembre_", num_30,"_pendiente"),
+                   str_c("covid_octubre_", num_31,"_pendiente"),
+                   str_c("covid_noviembre_", num_30,"_pendiente"),
+                   str_c("covid_diciembre_", num_31,"_pendiente"),
+                   str_c("covid_enero_", num_31,"_pendiente"),
+                   str_c("covid_febrero_", num_28,"_pendiente"),
+                   str_c("covid_marzo_", num_31,"_pendiente"),
+                   str_c("covid_abril_", num_30,"_pendiente"),
+                   str_c("covid_mayo_", num_31,"_pendiente")
+                   )
+
+nombres_bases_resultado <- c(str_c("covid_abril_", 12:30, "_resultado"),
+                   str_c("covid_mayo_", num_31,"_resultado"),
+                   str_c("covid_junio_", num_30,"_resultado"),
+                   str_c("covid_julio_", num_31,"_resultado"),
+                   str_c("covid_agosto_", num_31,"_resultado"),
+                   str_c("covid_septiembre_", num_30,"_resultado"),
+                   str_c("covid_octubre_", num_31,"_resultado"),
+                   str_c("covid_noviembre_", num_30,"_resultado"),
+                   str_c("covid_diciembre_", num_31,"_resultado"),
+                   str_c("covid_enero_", num_31,"_resultado"),
+                    str_c("covid_febrero_", num_28,"_resultado"),
+                   str_c("covid_marzo_", num_31,"_resultado"),
+                   str_c("covid_abril_", num_30,"_resultado"),
+                   str_c("covid_mayo_", num_31,"_resultado")
+                   )
+
+nombres_bases[229]
+length(nombres_bases)
+
+```
+
+The code below generates the data.table from mexico that includes the date of diagnosis, allowing for the main calculations. The code is EXTREMELY slow, so datatables are saved to be more efficient.
+
+Usando la información que tengo, puedo cuantificar si las pruebas rápidas en efecto hicieron el diagnóstico el mismo día o se tardaron en registrarlo.
+
+** Actualización de base de datos abiertos con la inclusión de la variable "Toma de muestra antigeno" 28/Oct/2020. Esto es lo que aparece en la página oficial pero en realidad empiezan a reportar lo del antígeno hasta después, en la base del 27 de noviembre para ser precisos. 
+
+```{r Per-reporting date country-level case estimation , include = F, eval = F, message = F, warning=F}
+#Code for the first dataframe (april 12)
+#All of the patients that already have a diagnosis by april 12 have an UNKWNOWN date of diagnosis, which we will specify later, once we have the completa dataframe
+base_completa_v1 <-  fread(bases_csv[1], drop=drop_interest, 
+                                colClasses=c("FECHA_INGRESO"="Date",
+                                             "FECHA_SINTOMAS"="Date")) %>%
+  mutate(FECHA_ACTUALIZACION = ymd("2020-04-12"),
+         FECHA_DIAGNOSTICO = case_when(RESULTADO == 1~FECHA_ACTUALIZACION,
+                                       RESULTADO == 2~FECHA_ACTUALIZACION))
+
+#Here we  filter the patients whose result changes from "pending" to positive or negative on any given day. It is very slow code, highly recommend to save the resulting dataframe
+
+system.time(for(i in 2:229){
+  base_completa_v1 <- rbindlist(list(base_completa_v1, 
+                            fread(bases_csv[i], drop = drop_interest,
+                                  colClasses=c("FECHA_ACTUALIZACION"="Date",
+                                               "FECHA_INGRESO"="Date","FECHA_SINTOMAS"="Date"))[,
+                                                    FECHA_ACTUALIZACION := 
+                                                     if_else(FECHA_ACTUALIZACION == "2020-04-19", 
+                                                             as.Date(str_c("2020-04-",num_30[i+11])),
+                                                             FECHA_ACTUALIZACION)][,
+                                                   FECHA_DIAGNOSTICO := case_when(RESULTADO == 1~FECHA_ACTUALIZACION,
+                                                                                 RESULTADO == 2~FECHA_ACTUALIZACION)]));
+  
+  base_completa_v1 <- setorder(base_completa_v1, FECHA_DIAGNOSTICO, na.last=T)[base_completa_v1[, .I[1], by = ID_REGISTRO]$V1]
+})
+
+#Quedó guardado hasta Octubre 06, entonces a partir de aquí es cuando tengo que reanudar la búsqueda
+
+base_completa_v1 <- base_completa_v1 %>% 
+  mutate(FECHA_DX_PCR = FECHA_DIAGNOSTICO)
+save(base_completa_v1, file = "base_completa_v1.RDa")
+#load("base_completa_v1.RDa")
+
+
+```
+
+
+```{r Per-reporting date country-level case estimation , include = F, eval = F, message = F, warning=F}
+system.time(for(i in 230:305){
+  base_completa_v1 <- group_by(rbindlist(list(base_completa_v1, 
+                            setnames(fread(bases_csv[i], drop = drop_interest,
+                                  colClasses=c("FECHA_ACTUALIZACION"="Date",
+                                               "FECHA_INGRESO"="Date","FECHA_SINTOMAS"="Date")),
+                                  "RESULTADO_LAB", "RESULTADO")[
+                                                 TOMA_MUESTRA_LAB == 1 | 
+                                                   TOMA_MUESTRA_ANTIGENO == 1][,
+                                                    FECHA_ACTUALIZACION := 
+                                                     if_else(FECHA_ACTUALIZACION == "2020-04-19", 
+                                                             as.Date(str_c("2020-04-",num_30[i+11])),
+                                                             FECHA_ACTUALIZACION)][,
+                                                   FECHA_DIAGNOSTICO := case_when(RESULTADO_LAB == 1~FECHA_ACTUALIZACION,
+                                                                                 RESULTADO == 2~FECHA_ACTUALIZACION)])),
+                            ID_REGISTRO) %>%
+    arrange(FECHA_DIAGNOSTICO, .by_group=T) %>% 
+    slice(1)
+})
+
+save(base_completa_v1, file = "base_completa_v1_mexico.RDa") #Base con todos los datos de México
+#load(file = "base_completa_v1_mexico.RDa")
+
+base_completa_mex <- as.data.table(base_completa_v1)[RESULTADO == 1 | RESULTADO == 2 | RESULTADO == 3,][, 
+   `:=`(LATENCIA_1 = as.double(FECHA_INGRESO-FECHA_SINTOMAS),
+         LATENCIA_2 = as.double(FECHA_DIAGNOSTICO-FECHA_INGRESO),
+         LATENCIA_TOTAL = as.double(FECHA_DIAGNOSTICO-FECHA_SINTOMAS))][,
+       `:=`(TIMING_TESTING = 
+                                               case_when(LATENCIA_1 <=3 ~ "Early tester",
+                                    LATENCIA_1 >3 & LATENCIA_1 <=8 ~ "Late tester",
+                                    LATENCIA_1 > 8 ~ "Very late tester"),
+         TIMING_RESULT = if_else(LATENCIA_2 <= 2, "Quick", "Delayed"),
+         TIMING_GLOBAL = case_when(LATENCIA_TOTAL <=5 ~ "Timely",
+                                   LATENCIA_TOTAL >5 & 
+                                     LATENCIA_TOTAL<=10 ~ "Regular",
+                                   LATENCIA_TOTAL >10 ~ "Late"))] %>% 
+  left_join(fread(bases_csv[305], select=var_interest), by = c("ID_REGISTRO")) %>% 
+  left_join(entidades_df, by = c("ENTIDAD_RES"))
+
+
+#save(base_completa_mex, file = "base_completa_mex.RDa")
+#load("base_completa_mex.RDa")
+```
+
+```{r adding hospitalization information in Mexico, include = F, run = F}
+drop_interest_hosp <- c("ORIGEN",	"SECTOR",	"ENTIDAD_UM",	"SEXO",	"ENTIDAD_NAC",	"ENTIDAD_RES",	
+                        "MUNICIPIO_RES",	"INTUBADO",	"NEUMONIA",	"EDAD",	"NACIONALIDAD",	"EMBARAZO",	
+                        "HABLA_LENGUA_INDIG",	"DIABETES",	"EPOC",	"ASMA",	"INMUSUPR",	"HIPERTENSION",	
+                        "OTRA_COM",	"CARDIOVASCULAR",	"OBESIDAD",	"RENAL_CRONICA",	"TABAQUISMO",	"OTRO_CASO",	
+                        "MIGRANTE",	"PAIS_NACIONALIDAD"	,"PAIS_ORIGEN", "CLASIFICACION_FINAL", "TOMA_MUESTRA", 
+                        "TOMA_MUESTRA_LAB", "OTRO_CASO", "INDIGENA", "RESULTADO_ANTIGENO", "TOMA_MUESTRA_ANTIGENO",
+                        "FECHA_DEF", "UCI")	
+
+
+base_completa_hosp_v1 <-  fread(bases_csv[1], drop=drop_interest_hosp, 
+                           colClasses=c("FECHA_INGRESO"="Date",
+                                        "FECHA_SINTOMAS"="Date",
+                                        "FECHA_ACTUALIZACION" = "Date"))[,
+  `:=`(FECHA_ACTUALIZACION = as.Date("2020-04-12"))][,
+         FECHA_HOSPITALIZACION := ymd(case_when(TIPO_PACIENTE == 2~FECHA_ACTUALIZACION))]
+
+#Here we  filter the patients whose result changes from "pending" to positive or negative on any given day. It is very slow code, highly recommend to save the resulting dataframe
+
+for(i in 296:305){
+  base_completa_hosp_v1 <- rbindlist(list(base_completa_hosp_v1, 
+                                     fread(bases_csv[i], drop = drop_interest_hosp,
+                                           colClasses=c("FECHA_ACTUALIZACION"="Date",
+                                                        "FECHA_INGRESO"="Date","FECHA_SINTOMAS"="Date"))[,FECHA_ACTUALIZACION := 
+                                                                                                           if_else(FECHA_ACTUALIZACION == "2020-04-19", 
+                                                                                                                   as.Date(str_c("2020-04-",num_30[i+11])),
+                                                                                                                   FECHA_ACTUALIZACION)][,
+                                                                                                           FECHA_HOSPITALIZACION := ymd(case_when(TIPO_PACIENTE == 2~FECHA_ACTUALIZACION))]));
+  
+  base_completa_hosp_v1 <- setorder(base_completa_hosp_v1, FECHA_HOSPITALIZACION, na.last=T)[base_completa_hosp_v1[, .I[1], by = ID_REGISTRO]$V1]
+}
+
+save(base_completa_hosp_v1, file = "base_completa_hosp_v1.RDa")#esta base está hasta el 10 de febrero, entonces tengo que correrla de nuevo a partir de esta fecha por los que pudieran haberse perdido
+#load("base_completa_hosp_v1.RDa")
+```
+
+```{r Joining general Mexico df and hospitalization df, include = F, run = F}
+
+base_completa_mex_full <- left_join(base_completa_mex, 
+                                    select(base_completa_hosp_v1, ID_REGISTRO, FECHA_HOSPITALIZACION), by = "ID_REGISTRO") %>% 
+  filter(FECHA_INGRESO >= "2020-04-12"&
+           FECHA_INGRESO <="2021-01-31") %>% 
+  mutate(ENTIDAD_RES_NOM = str_replace_all(ENTIDAD_RES_NOM," ", "_"))
+
+#save(base_completa_mex_full, file = "base_completa_mex_full.RDa")#Aquí ya lo filtré por fechas relevantes
+
+```
+
+Fórmula para índice de marginación es el promedio por localidad de estos nueve indicadores y su nombre correspondiente en la base del INEGI:
+1.Porcentaje de población de 15 años o más analfabeta (*P15YM_AN*, *P_15YMAS* es la población mayor de 15)
+2.Porcentaje de población de 15 años o más sin primaria completa (*P15YM_SE* sin escolaridad, *P15PRI_IN* con primaria incompleta, *P_15YMAS* es la población mayor de 15)
+3.Porcentaje de ocupantes en viviendas particulares habitadas sin
+drenaje ni servicio sanitario (*VPH_NODREN*)
+4.Porcentaje de ocupantes en viviendas particulares habitadas sin
+energía eléctrica (*VPH_S_ELEC*)
+5.Porcentaje de ocupantes en viviendas particulares habitadas sin agua
+entubada (*VPH_AGUAFV*) 
+6.Porcentaje de viviendas particulares habitadas con algún nivel de
+hacinamiento (*VPH_1DOR* viviendas con una recámara, *VPH_2YMASD* viviendas con dos o más recámaras, *VPH_1CUART* viviendas con un solo cuarto, *VPH_2CUART* viviendas con dos cuartos, *VPH_3YMASC* viviendas con tres o más cuartos). Hacinamiento lo definen como al menos 3 ocupantes con una recámara, al menos 5 con dos recámaras, al menos 7 con 3 recámaras y al menos 9 con cuatro recámaras.
+7.Porcentaje de ocupantes de viviendas particulares habitadas con piso
+de tierra (*VPH_PISOTI*)
+8.Porcentaje de población en localidades con menos de cinco mil
+habitantes (*POBTOT* en el área geográfica especificada)
+9.Porcentaje de población ocupada con ingresos de hasta dos salarios
+mínimos (NO VIENE ESTA VARIABLE, LO VOY A SUSTITUIR POR: *PE_INAC* porcentaje de 12 años y más que NO son económicamente activos, restándole a los de 12-24 años que estudian, por lo tanto serán aquellos mayores de 12 años que sean NINIS) * P12A14NOA* son los de 12 a 14 que no estudian, *P_12A14* es la población de 12 a 14, *P15A17A*son los de 15 a 17 que si estudian y *P18A24A*son los que tienen 18 a 24 y si estudian.
+
+Como agregado: *VPH_NDEAED* viviendas particulares habitadas sin electricidad, agua entubada ni drenaje
+Como agregado, las variables de afiliación a un servicio de salud:
+*PSINDER*: total de personas que no tienen derecho a un servicio médico  
+*PDER_SS*: total de personas que tienen alguna afiliación a un servicio médico  
+*PDER_IMSS*: total de personas con derecho a imss  
+*PDER_ISTE*: total de personas con derecho a issste  
+*PDER_ISTEE*: total de personas con derecho a issste estatal  
+*PAFIL_PDOM*: total de personas afiliadas a PEMEX, marina o defensa  
+*PDER_SEGP*: total de personas afiliadas a INSABI  
+*PDER_IMSSB*: total de personas afiliadas a imss bienestar  
+*PAFIL_IPRIV*: total de personas que acuden a atención privada
+*PAFIL_OTRAI*: total de personas que acuden a otro tipo de atención (pública o privada)
+
+```{r indices de marginacion mexico, include = F, warnings = F, run = F}
+variables_interes <- c("ENTIDAD", "NOM_ENT", "MUN", "NOM_MUN","LOC", "NOM_LOC", "AGEB", "MZA", "POBTOT", "POBFEM", "POBMAS",
+                       "P15YM_AN", "P15YM_SE", "P15PRI_IN", "VPH_NODREN", "VPH_S_ELEC", "VPH_AGUAFV", "VPH_1DOR",
+                       "VPH_2YMASD", "VPH_1CUART", "VPH_2CUART", "VPH_3YMASC", "VPH_PISOTI", "PE_INAC",
+                       "VPH_NDEAED", "PSINDER", "PDER_SS", "PDER_IMSS", "PDER_ISTE", "PDER_ISTEE", "PAFIL_PDOM",
+                       "PDER_SEGP", "PDER_IMSSB", "PAFIL_IPRIV", "PAFIL_OTRAI", "P_15YMAS", "TOTHOG", "POBHOG",
+                       "VIVTOT", "TVIVHAB", "TVIVPAR", "VIVPAR_HAB", "TVIVPARHAB", "OCUPVIVPAR", "PROM_OCUP", "PRO_OCUP_C",
+                       "P_12YMAS", "P15A17A", "P18A24A", "P_12A14", "P12A14NOA")
+
+inegi <- fread("E:/Protocolos de investigación/Censo población y vivienda 2020/ITER_NALCSV20.csv",
+               select=variables_interes)
+
+inegi_v1 <- inegi[MUN != 0 & LOC != 9998 & LOC != 9999 & LOC != 0,][,
+  `:=`(POBTOT=case_when(!is.na(POBTOT) ~as.double(POBTOT)),
+         POBFEM=case_when(!is.na(POBFEM) ~as.double(POBFEM)),
+         POBMAS=case_when(!is.na(POBMAS) ~as.double(POBMAS)),
+         P15YM_AN=case_when(!is.na(P15YM_AN) ~as.double(P15YM_AN)),
+         P15YM_SE=case_when(!is.na(P15YM_SE) ~as.double(P15YM_SE)),
+         P15PRI_IN=case_when(!is.na(P15PRI_IN) ~as.double(P15PRI_IN)),
+         VPH_NODREN=case_when(!is.na(VPH_NODREN) ~as.double(VPH_NODREN)),
+         VPH_S_ELEC=case_when(!is.na(VPH_S_ELEC) ~as.double(VPH_S_ELEC)),
+         VPH_AGUAFV=case_when(!is.na(VPH_AGUAFV) ~as.double(VPH_AGUAFV)),
+         VPH_1DOR=case_when(!is.na(VPH_1DOR) ~as.double(VPH_1DOR)),
+         VPH_2YMASD=case_when(!is.na(VPH_2YMASD) ~as.double(VPH_2YMASD)),
+         VPH_1CUART=case_when(!is.na(VPH_1CUART) ~as.double(VPH_1CUART)),
+         VPH_2CUART=case_when(!is.na(VPH_2CUART) ~as.double(VPH_2CUART)),
+         VPH_3YMASC=case_when(!is.na(VPH_3YMASC) ~as.double(VPH_3YMASC)),
+         VPH_PISOTI=case_when(!is.na(VPH_PISOTI) ~as.double(VPH_PISOTI)),
+         PE_INAC=case_when(!is.na(PE_INAC) ~as.double(PE_INAC)),
+         VPH_NDEAED=case_when(!is.na(VPH_NDEAED) ~as.double(VPH_NDEAED)),
+         PSINDER=case_when(!is.na(PSINDER) ~as.double(PSINDER)),
+         PDER_SS=case_when(!is.na(PDER_SS) ~as.double(PDER_SS)),
+         PDER_IMSS=case_when(!is.na(PDER_IMSS) ~as.double(PDER_IMSS)),
+         PDER_ISTE=case_when(!is.na(PDER_ISTE) ~as.double(PDER_ISTE)),
+         PDER_ISTEE=case_when(!is.na(PDER_ISTEE) ~as.double(PDER_ISTEE)),
+         PAFIL_PDOM=case_when(!is.na(PAFIL_PDOM) ~as.double(PAFIL_PDOM)),
+         PDER_SEGP=case_when(!is.na(PDER_SEGP) ~as.double(PDER_SEGP)),
+         PDER_IMSSB=case_when(!is.na(PDER_IMSSB) ~as.double(PDER_IMSSB)),
+         PAFIL_IPRIV=case_when(!is.na(PAFIL_IPRIV) ~as.double(PAFIL_IPRIV)),
+         PAFIL_OTRAI=case_when(!is.na(PAFIL_OTRAI) ~as.double(PAFIL_OTRAI)),
+         P_15YMAS=case_when(!is.na(P_15YMAS) ~as.double(P_15YMAS)),
+         TOTHOG=case_when(!is.na(TOTHOG) ~as.double(TOTHOG)),
+         POBHOG=case_when(!is.na(POBHOG) ~as.double(POBHOG)),
+         VIVTOT=case_when(!is.na(VIVTOT) ~as.double(VIVTOT)),
+         TVIVHAB=case_when(!is.na(TVIVHAB) ~as.double(TVIVHAB)),
+         TVIVPAR=case_when(!is.na(TVIVPAR) ~as.double(TVIVPAR)),
+         VIVPAR_HAB=case_when(!is.na(VIVPAR_HAB) ~as.double(VIVPAR_HAB)),
+         TVIVPARHAB=case_when(!is.na(TVIVPARHAB) ~as.double(TVIVPARHAB)),
+         OCUPVIVPAR=case_when(!is.na(OCUPVIVPAR) ~as.double(OCUPVIVPAR)),
+         PROM_OCUP=case_when(!is.na(PROM_OCUP) ~as.double(PROM_OCUP)),
+         PRO_OCUP_C=case_when(!is.na(PRO_OCUP_C) ~as.double(PRO_OCUP_C)),
+         P_12YMAS=case_when(!is.na(P_12YMAS) ~as.double(P_12YMAS)),
+         P15A17A=case_when(!is.na(P15A17A) ~as.double(P15A17A)),
+         P18A24A=case_when(!is.na(P18A24A) ~as.double(P18A24A)),
+         P_12A14=case_when(!is.na(P_12A14) ~as.double(P_12A14)),
+         P12A14NOA=case_when(!is.na(P12A14NOA) ~as.double(P12A14NOA))
+         )]
+
+
+#save(inegi_v1, file = "inegi_v1.RDa")
+
+inegi_sum <- inegi_v1 %>% 
+  group_by(ENTIDAD, MUN) %>% 
+  mutate(POB_MUN = sum(POBTOT, na.rm = T)) %>% 
+  ungroup() %>% 
+  group_by(ENTIDAD, MUN, LOC) %>% 
+  mutate(PORCENTAJE_ANALF_15 = (P15YM_AN/P_15YMAS)*100,
+         PORCENTAJE_S_PRIMARIA_15= ((P15YM_SE+P15PRI_IN)/P_15YMAS)*100,
+         PORCENTAJE_OCUP_S_DRENAJE = (VPH_NODREN/VIVPAR_HAB)*100,
+         PORCENTAJE_OCUP_S_ELECTRICIDAD = (VPH_S_ELEC/VIVPAR_HAB)*100,
+         PORCENTAJE_OCUP_S_AGUA_ENTUB = (VPH_AGUAFV/VIVPAR_HAB)*100,
+         HACINAMIENTO = case_when(PRO_OCUP_C >2 ~T,
+                         PRO_OCUP_C <=2 ~F),
+         PORCENTAJE_OCUP_PISO_TIERRA = (VPH_PISOTI/VIVPAR_HAB)*100,
+         MENOS_5K_HAB = case_when(POBTOT <5000 ~T,
+                                  POBTOT>=5000 ~F),
+         PORCENTAJE_NO_ECON_ACTIVO = ((PE_INAC-(P15A17A+P18A24A+(P_12A14-P12A14NOA)))/P_12YMAS)*100,
+         INDICADOR_DISPONIBLE = sum(!is.na(PORCENTAJE_ANALF_15),!is.na(PORCENTAJE_S_PRIMARIA_15),
+                                      !is.na(PORCENTAJE_OCUP_S_DRENAJE), !is.na(PORCENTAJE_OCUP_S_ELECTRICIDAD),
+                                      !is.na(PORCENTAJE_OCUP_S_AGUA_ENTUB),!is.na(HACINAMIENTO),
+                               !is.na(PORCENTAJE_OCUP_PISO_TIERRA),!is.na(MENOS_5K_HAB),!is.na(PORCENTAJE_NO_ECON_ACTIVO)),
+         IAM_LOCALIDAD = mean(PORCENTAJE_ANALF_15, PORCENTAJE_S_PRIMARIA_15, PORCENTAJE_OCUP_S_DRENAJE, 
+                              PORCENTAJE_OCUP_S_ELECTRICIDAD, PORCENTAJE_OCUP_S_AGUA_ENTUB, HACINAMIENTO,
+                              PORCENTAJE_OCUP_PISO_TIERRA, MENOS_5K_HAB, PORCENTAJE_NO_ECON_ACTIVO, na.rm = T),
+         PESO_LOCALIDAD = IAM_LOCALIDAD*POBTOT)
+
+#Esta base tiene los índices absolutos de marginación por municipio
+inegi_sum_v2 <- filter(inegi_sum, !is.na(IAM_LOCALIDAD)) %>% 
+  ungroup() %>% 
+  group_by(ENTIDAD, MUN) %>% 
+  mutate(POB_MUN_CORREGIDA = sum(POBTOT, na.rm = T)) %>% 
+  summarise(IAM_MUNICIPIO = sum(PESO_LOCALIDAD)/POB_MUN_CORREGIDA) %>% 
+  slice(1) %>% 
+  rename(ENTIDAD_RES = ENTIDAD,
+         MUNICIPIO_RES = MUN)
+
+
+#save(inegi_sum_v2, file = "inegi_sum_v2.RDa")
+  
+base_completa_mex_full_v2 <- left_join(base_completa_mex_full,
+                                       inegi_sum_v2, by = c("ENTIDAD_RES", "MUNICIPIO_RES")) %>% 
+  filter(!is.na(IAM_MUNICIPIO)) %>% 
+  mutate(QUINTIL_IAM_MUNICIPIO = factor(case_when(
+    IAM_MUNICIPIO <= quantile(IAM_MUNICIPIO, probs = seq(0,1,.2))[2]~"Quintile 1",
+    IAM_MUNICIPIO > quantile(IAM_MUNICIPIO, probs = seq(0,1,.2))[2]&IAM_MUNICIPIO<=quantile(IAM_MUNICIPIO, 
+                                                                                            probs = seq(0,1,.2))[3]~"Quintile 2",
+    IAM_MUNICIPIO > quantile(IAM_MUNICIPIO, probs = seq(0,1,.2))[3]&IAM_MUNICIPIO<=quantile(IAM_MUNICIPIO, 
+                                                                                            probs = seq(0,1,.2))[4]~"Quintile 3",
+    IAM_MUNICIPIO > quantile(IAM_MUNICIPIO, probs = seq(0,1,.2))[4]&IAM_MUNICIPIO<=quantile(IAM_MUNICIPIO, 
+                                                                                            probs = seq(0,1,.2))[5]~"Quintile 4",
+    IAM_MUNICIPIO > quantile(IAM_MUNICIPIO, probs = seq(0,1,.2))[5]&IAM_MUNICIPIO<=quantile(IAM_MUNICIPIO, 
+                                                                                            probs = seq(0,1,.2))[6]~"Quintile 5",
+  )))
+
+  
+#estoy filtrando lo de iam_municipio porque estos pacientes no tienen información sobre estado o municipio, no únicamente poreuq eno tengan esta variable
+
+#save(base_completa_mex_full_v2, file = "base_completa_mex_full_v2.RDa")
+```
+
+```{r figure 1 mexico, echo = F, run = F}
+plot_mex_lat1 <- ggplot(filter(base_completa_mex_full_v2, FECHA_INGRESO >= "2020-04-12" & !is.na(TIMING_TESTING)), aes(x = FECHA_INGRESO, fill = TIMING_TESTING))+
+  geom_bar(position = "fill", na.rm =T) +
+  scale_y_continuous(labels = scales::percent) +
+  scale_fill_brewer(palette = "Dark2")+
+  labs(y = "Percentage of tests",
+       fill = str_c("Patient timing to testing"),
+       caption= "Early tester = within 5 days of symptoms; Late tester = between 6 and 10 days; 
+       Very late tester= after 10 days.") +
+  scale_x_date(date_breaks = "1 months",
+               date_labels ="%b %y",
+               expand = c(0.01, 0.03))+
+  theme_minimal()+
+  ggtitle("Timing of patient arrival to testing in Mexico")+
+  theme(legend.position = "bottom",
+        legend.box = "horizontal",
+        legend.title = element_text(size = 14, face = "bold"),
+        legend.text = element_text(size = 12),
+        axis.text.x = element_text(angle = 90, vjust = .25, hjust = 0.95, size = 14),
+        axis.title = element_blank(),
+        axis.ticks = element_line(size = 1, colour = "black"),
+        axis.title.y = element_text(face = "bold", size = 14),
+        axis.text.y = element_text(size = 14),
+        plot.title = element_text(size = 14, face = "bold"));plot_mex_lat1
+
+plot_mex_lat2 <- ggplot(filter(base_completa_mex_full_v2, FECHA_INGRESO >= "2020-04-12" & !is.na(TIMING_RESULT)), aes(x = FECHA_INGRESO, fill = TIMING_RESULT))+
+  geom_bar(position = "fill", na.rm =T) +
+  scale_y_continuous(labels = scales::percent) +
+  scale_fill_brewer(palette = "Dark2")+
+  labs(y = "Percentage of tests",
+       fill = str_c("Speed of test results"),
+       caption="Quick = within 2 days of sampling; Delayed = after 2 days.") +
+  scale_x_date(date_breaks = "1 months",
+               date_labels ="%b %y",
+               expand = c(0.01, 0.03))+
+  theme_minimal()+
+  ggtitle("Speed of SARS-CoV-2 RT-PCR test results in Mexico")+
+  theme(legend.position = "bottom",
+        legend.box = "horizontal",
+        legend.title = element_text(size = 14, face = "bold"),
+        legend.text = element_text(size = 12),
+        axis.text.x = element_text(angle = 90, vjust = .25, hjust = 0.95, size = 14),
+        axis.title = element_blank(),
+        axis.ticks = element_line(size = 1, colour = "black"),
+        axis.title.y = element_text(face = "bold", size = 14),
+        axis.text.y = element_text(size = 14),
+        plot.title = element_text(size = 14, face = "bold"));plot_mex_lat2
+
+plot_mex_latT <- ggplot(filter(base_completa_mex_full_v2, FECHA_INGRESO >= "2020-04-12" & !is.na(TIMING_GLOBAL)), aes(x = FECHA_INGRESO, fill = TIMING_GLOBAL))+
+  geom_bar(position = "fill", na.rm =T) +
+  scale_y_continuous(labels = scales::percent) +
+  scale_fill_brewer(palette = "Dark2")+
+  labs(y = "Percentage of tests",
+       fill = str_c("Timeliness of test results"),
+       caption="Timely = within 5 days of symptoms; Regular = between 6 and 10 days; Late = after 10 days.") +
+  scale_x_date(date_breaks = "1 months",
+               date_labels ="%b %y",
+               expand = c(0.01, 0.03))+
+  theme_minimal()+
+  ggtitle("Timeliness of SARS-CoV-2 RT-PCR test results in Mexico")+
+  theme(legend.position = "bottom",
+        legend.box = "horizontal",
+        legend.title = element_text(size = 14, face = "bold"),
+        legend.text = element_text(size = 12),
+        axis.text.x = element_text(angle = 90, vjust = .25, hjust = 0.95, size = 14),
+        axis.title = element_blank(),
+        axis.ticks = element_line(size = 1, colour = "black"),
+        axis.title.y = element_text(face = "bold", size = 14),
+        axis.text.y = element_text(size = 14),
+        plot.title = element_text(size = 14, face = "bold"));plot_mex_latT
+  
+```
+
+```{r figure 1 mexico by state, echo = F, run = F}
+
+plot_mex_state_lat1 <- ggplot(filter(base_completa_mex_full_v2, FECHA_INGRESO >= "2020-04-12" & !is.na(TIMING_TESTING)), aes(x = FECHA_INGRESO, fill = TIMING_TESTING))+
+  geom_bar(position = "fill", na.rm =T) +
+  scale_y_continuous(labels = scales::percent) +
+  scale_fill_brewer(palette = "Dark2")+
+  facet_wrap(~ENTIDAD_RES_NOM)+
+  labs(y = "Percentage of tests",
+       fill = str_c("Patient timing to testing"),
+       caption= "Early tester = within 5 days of symptoms; Late tester = between 6 and 10 days; 
+       Very late tester= after 10 days.") +
+  scale_x_date(date_breaks = "2 months",
+               date_labels ="%b %y",
+               expand = c(0.01, 0.03))+
+  theme_minimal()+
+  ggtitle("Timing of patient arrival to testing in Mexico (by state)")+
+  theme(legend.position = c(0.7, 0.03),
+        legend.box = "horizontal",
+        legend.title = element_text(size = 10, face = "bold"),
+        legend.text = element_text(size = 8),
+        axis.text.x = element_text(angle = 90, vjust = .25, hjust = 0.95),
+        axis.title = element_blank(),
+        axis.ticks = element_line(size = 1, colour = "black"),
+        axis.title.y = element_text(face = "bold", size = 14),
+        axis.text.y = element_text(),
+        plot.title = element_text(size = 14, face = "bold"))
+
+plot_mex_state_lat2 <- ggplot(filter(base_completa_mex_full_v2, FECHA_INGRESO >= "2020-04-12" & !is.na(TIMING_RESULT)), aes(x = FECHA_INGRESO, fill = TIMING_RESULT))+
+  geom_bar(position = "fill", na.rm =T) +
+  scale_y_continuous(labels = scales::percent) +
+  scale_fill_brewer(palette = "Dark2")+
+  facet_wrap(~ENTIDAD_RES_NOM)+
+  labs(y = "Percentage of tests",
+       fill = str_c("Speed of test results"),
+       caption="Quick = within 2 days of sampling; Delayed = after 2 days.") +
+  scale_x_date(date_breaks = "2 months",
+               date_labels ="%b %y",
+               expand = c(0.01, 0.03))+
+  theme_minimal()+
+  ggtitle("Speed of SARS-CoV-2 RT-PCR test results in Mexico (by state)")+
+  theme(legend.position = c(0.7, 0.03),
+        legend.box = "horizontal",
+        legend.title = element_text(size = 10, face = "bold"),
+        legend.text = element_text(size = 8),
+        axis.text.x = element_text(angle = 90, vjust = .25, hjust = 0.95),
+        axis.title = element_blank(),
+        axis.ticks = element_line(size = 1, colour = "black"),
+        axis.title.y = element_text(face = "bold", size = 14),
+        axis.text.y = element_text(),
+        plot.title = element_text(size = 14, face = "bold"))
+  
+
+plot_mex_state_latT <- ggplot(filter(base_completa_mex_full_v2, FECHA_INGRESO >= "2020-04-12" & !is.na(TIMING_GLOBAL)), aes(x = FECHA_INGRESO, fill = TIMING_GLOBAL))+
+  geom_bar(position = "fill", na.rm =T) +
+  scale_y_continuous(labels = scales::percent) +
+  scale_fill_brewer(palette = "Dark2")+
+  facet_wrap(~ENTIDAD_RES_NOM)+
+  labs(y = "Percentage of tests",
+       fill = str_c("Timeliness of test results"),
+       caption="Timely = within 5 days of symptoms; Regular = between 6 and 10 days; Late = after 10 days.") +
+  scale_x_date(date_breaks = "2 months",
+               date_labels ="%b %y",
+               expand = c(0.01, 0.03))+
+  theme_minimal()+
+  ggtitle("Timeliness of SARS-CoV-2 RT-PCR test results in Mexico (by state)")+
+  theme(legend.position = c(0.7, 0.03),
+        legend.box = "horizontal",
+        legend.title = element_text(size = 10, face = "bold"),
+        legend.text = element_text(size = 8),
+        axis.text.x = element_text(angle = 90, vjust = .25, hjust = 0.95),
+        axis.title = element_blank(),
+        axis.ticks = element_line(size = 1, colour = "black"),
+        axis.title.y = element_text(face = "bold", size = 14),
+        axis.text.y = element_text(),
+        plot.title = element_text(size = 14, face = "bold"))
+  
+```
+
+```{r figure 1 mexico by IAM, echo = F, run = F}
+plot_mex_iam_lat1 <- ggplot(filter(base_completa_mex_full_v2, FECHA_INGRESO >= "2020-04-12" & !is.na(TIMING_TESTING)), aes(x = FECHA_INGRESO, fill = TIMING_TESTING))+
+  geom_bar(position = "fill", na.rm =T) +
+  scale_y_continuous(labels = scales::percent) +
+  scale_fill_brewer(palette = "Dark2")+
+  facet_wrap(~QUINTIL_IAM_MUNICIPIO)+
+  labs(y = "Percentage of tests",
+       fill = str_c("Patient timing to testing"),
+       caption= "Early tester = within 5 days of symptoms; Late tester = between 6 and 10 days; 
+       Very late tester= after 10 days.") +
+  scale_x_date(date_breaks = "2 months",
+               date_labels ="%b %y",
+               expand = c(0.01, 0.03))+
+  theme_minimal()+
+  ggtitle("Timing of patient arrival to testing in Mexico (by margination index)")+
+  theme(legend.position = c(0.7, 0.03),
+        legend.box = "horizontal",
+        legend.title = element_text(size = 10, face = "bold"),
+        legend.text = element_text(size = 8),
+        axis.text.x = element_text(angle = 90, vjust = .25, hjust = 0.95),
+        axis.title = element_blank(),
+        axis.ticks = element_line(size = 1, colour = "black"),
+        axis.title.y = element_text(face = "bold", size = 14),
+        axis.text.y = element_text(),
+        plot.title = element_text(size = 14, face = "bold"))
+
+plot_mex_iam_lat2 <- ggplot(filter(base_completa_mex_full_v2, FECHA_INGRESO >= "2020-04-12" & !is.na(TIMING_RESULT)), aes(x = FECHA_INGRESO, fill = TIMING_RESULT))+
+  geom_bar(position = "fill", na.rm =T) +
+  scale_y_continuous(labels = scales::percent) +
+  scale_fill_brewer(palette = "Dark2")+
+  facet_wrap(~QUINTIL_IAM_MUNICIPIO)+
+  labs(y = "Percentage of tests",
+       fill = str_c("Speed of test results"),
+       caption="Quick = within 2 days of sampling; Delayed = after 2 days.") +
+  scale_x_date(date_breaks = "2 months",
+               date_labels ="%b %y",
+               expand = c(0.01, 0.03))+
+  theme_minimal()+
+  ggtitle("Speed of SARS-CoV-2 RT-PCR test results in Mexico (by margination index)")+
+  theme(legend.position = c(0.7, 0.03),
+        legend.box = "horizontal",
+        legend.title = element_text(size = 10, face = "bold"),
+        legend.text = element_text(size = 8),
+        axis.text.x = element_text(angle = 90, vjust = .25, hjust = 0.95),
+        axis.title = element_blank(),
+        axis.ticks = element_line(size = 1, colour = "black"),
+        axis.title.y = element_text(face = "bold", size = 14),
+        axis.text.y = element_text(),
+        plot.title = element_text(size = 14, face = "bold"))
+  
+
+plot_mex_iam_latT <- ggplot(filter(base_completa_mex_full_v2, FECHA_INGRESO >= "2020-04-12" & !is.na(TIMING_GLOBAL)), aes(x = FECHA_INGRESO, fill = TIMING_GLOBAL))+
+  geom_bar(position = "fill", na.rm =T) +
+  scale_y_continuous(labels = scales::percent) +
+  scale_fill_brewer(palette = "Dark2")+
+  facet_wrap(~QUINTIL_IAM_MUNICIPIO, ncol=1)+
+  labs(y = "Percentage of tests",
+       fill = str_c("Timeliness of test results"),
+       caption="Timely = within 5 days of symptoms; Regular = between 6 and 10 days; Late = after 10 days.") +
+  scale_x_date(date_breaks = "2 months",
+               date_labels ="%b %y",
+               expand = c(0.01, 0.03))+
+  theme_minimal()+
+  ggtitle("Timeliness of SARS-CoV-2 RT-PCR test results in Mexico (by margination index)")+
+  theme(legend.position = c(0.7, 0.03),
+        legend.box = "horizontal",
+        legend.title = element_text(size = 10, face = "bold"),
+        legend.text = element_text(size = 8),
+        axis.text.x = element_text(angle = 90, vjust = .25, hjust = 0.95),
+        axis.title = element_blank(),
+        axis.ticks = element_line(size = 1, colour = "black"),
+        axis.title.y = element_text(face = "bold", size = 14),
+        axis.text.y = element_text(),
+        plot.title = element_text(size = 14, face = "bold"))
+  
+```
+Las pruebas de antígeno las empezaron a hacer el 30 de Julio, previo a esto en su página no hay una sola prueba de antígeno, de manera que si no responden el correo entonces al menos sabemos que este fue el primer día en el cual se reportaron.
+```{r colombia data, include = F}
+base_colombia <- fread("E:/Protocolos de investigación/Base colombia/Salida_Datos_Abiertos.csv")[,`:=`(fecha_notificacion = 
+                                       date(dmy_hms(`Fecha Not`)),
+                                     fecha_inicio_sintomas=
+                                       date(dmy_hms(Fecha_inicio_sintomas)),
+                                     fecha_diagnostico=
+                                       date(dmy_hms(Fecha_diagnostico)),
+                                     fecha_muerte=date(dmy_hms(Fecha_muerte)),
+                                     fecha_recuperado=date(dmy_hms(Fecha_recuperado)),
+                                     fecha_hoy_casos=date(dmy_hms(fecha_hoy_casos)))][,
+                               `:=`(latencia_1 = as.double(fecha_notificacion-fecha_inicio_sintomas),
+                                     latencia_2 = as.double(fecha_diagnostico-fecha_notificacion),
+                                     latencia_total = as.double(fecha_diagnostico-fecha_inicio_sintomas))][,
+                               `:=`(timing_testing = 
+                                               case_when(latencia_1 <=5 ~ "Early tester",
+                                    latencia_1 >5 & latencia_1 <=10 ~ "Late tester",
+                                    latencia_1 > 10 ~ "Very late tester"),
+         timing_result = if_else(latencia_2 <= 2, "Quick", "Delayed"),
+         timing_global = case_when(latencia_total <=5 ~ "Timely",
+                                   latencia_total >5 & 
+                                     latencia_total<=10 ~ "Regular",
+                                   latencia_total >10 ~ "Late"))][fecha_notificacion <ymd("2020-07-30")&
+                                                                    latencia_1>=0&
+                                                                    latencia_2>=0,]
+
+departamentos_colombia <- data.frame(Departamento_nom=levels(as.factor(base_colombia$Departamento_nom)),
+                                     IPM_2019 = c(35.6,15.7,23.3,14.9,NA,7.1,26.9,12.8,14.3,25.7,NA,18.3,24,25.5,42.3,
+                                                  34.7,12.3,67,48.8,30.9,18.3,31.6,19.1,23.2,24.2,25.4,10.2,11.1,8.2,
+                                                  12.4,NA,33.3,15.2,10.8,66.5,72.2)) 
+
+quintiles_ipm_col <- quantile(departamentos_colombia$IPM_2019, probs=seq(0,1,.2), na.rm = T)
+
+
+base_colombia_v1 <- base_colombia %>% 
+  left_join(departamentos_colombia, by = "Departamento_nom") %>% 
+  mutate(IPM_quintil = factor(case_when(
+    IPM_2019 <= quantile(IPM_2019, probs = seq(0,1,.2),na.rm = T)[2]~"Quintile 1",
+    IPM_2019 > quantile(IPM_2019, probs = seq(0,1,.2),na.rm = T)[2]&IPM_2019<=quantile(IPM_2019, 
+                                                                                            probs = seq(0,1,.2),na.rm = T)[3]~"Quintile 2",
+    IPM_2019 > quantile(IPM_2019, probs = seq(0,1,.2),na.rm = T)[3]&IPM_2019<=quantile(IPM_2019, 
+                                                                                            probs = seq(0,1,.2),na.rm = T)[4]~"Quintile 3",
+    IPM_2019 > quantile(IPM_2019, probs = seq(0,1,.2),na.rm = T)[4]&IPM_2019<=quantile(IPM_2019, 
+                                                                                            probs = seq(0,1,.2),na.rm = T)[5]~"Quintile 4",
+    IPM_2019 > quantile(IPM_2019, probs = seq(0,1,.2),na.rm = T)[5]&IPM_2019<=quantile(IPM_2019, 
+                                                                                            probs = seq(0,1,.2),na.rm = T)[6]~"Quintile 5",
+  )))
+#save(base_colombia_v1, file= "base_colombia_v1.RDa")
+```
+
+```{r figure 1 colombia, echo = F}
+#Número de pacientes que no tienen fecha de inicio de síntomas: aprox 42000 tomando como corte el 29 de julio
+#sum(is.na(base_colombia$timing_testing))
+
+
+plot_col_lat1 <- ggplot(base_colombia_v1[!is.na(timing_testing),], aes(x = fecha_notificacion, fill = timing_testing))+
+  geom_bar(position = "fill", na.rm =T) +
+  scale_y_continuous(labels = scales::percent) +
+  scale_fill_brewer(palette = "Dark2")+
+  labs(y = "Percentage of tests",
+       fill = str_c("Patient timing to testing"),
+       caption= "Early tester = within 5 days of symptoms; Late tester = between 6 and 10 days; 
+       Very late tester= after 10 days.") +
+  scale_x_date(date_breaks = "1 months",
+               date_labels ="%b %y",
+               expand = c(0.01, 0.03))+
+  theme_minimal()+
+  ggtitle("Timing of patient arrival to testing in colombia")+
+  theme(legend.position = "bottom",
+        legend.box = "horizontal",
+        legend.title = element_text(size = 14, face = "bold"),
+        legend.text = element_text(size = 12),
+        axis.text.x = element_text(angle = 90, vjust = .25, hjust = 0.95, size = 14),
+        axis.title = element_blank(),
+        axis.ticks = element_line(size = 1, colour = "black"),
+        axis.title.y = element_text(face = "bold", size = 14),
+        axis.text.y = element_text(size = 14),
+        plot.title = element_text(size = 14, face = "bold"))
+
+plot_col_lat2 <- ggplot(base_colombia_v1[!is.na(timing_result),], aes(x = fecha_notificacion, fill = timing_result))+
+  geom_bar(position = "fill", na.rm =T) +
+  scale_y_continuous(labels = scales::percent) +
+  scale_fill_brewer(palette = "Dark2")+
+  labs(y = "Percentage of tests",
+       fill = str_c("Speed of test results"),
+       caption="Quick = within 2 days of sampling; Delayed = after 2 days.") +
+  scale_x_date(date_breaks = "1 months",
+               date_labels ="%b %y",
+               expand = c(0.01, 0.03))+
+  theme_minimal()+
+  ggtitle("Speed of SARS-CoV-2 RT-PCR test results in Colombia")+
+  theme(legend.position = "bottom",
+        legend.box = "horizontal",
+        legend.title = element_text(size = 14, face = "bold"),
+        legend.text = element_text(size = 12),
+        axis.text.x = element_text(angle = 90, vjust = .25, hjust = 0.95, size = 14),
+        axis.title = element_blank(),
+        axis.ticks = element_line(size = 1, colour = "black"),
+        axis.title.y = element_text(face = "bold", size = 14),
+        axis.text.y = element_text(size = 14),
+        plot.title = element_text(size = 14, face = "bold"))
+
+plot_col_latT <- ggplot(base_colombia_v1[!is.na(timing_global),], aes(x = fecha_notificacion, fill = timing_global))+
+  geom_bar(position = "fill", na.rm =T) +
+  scale_y_continuous(labels = scales::percent) +
+  scale_fill_brewer(palette = "Dark2")+
+  labs(y = "Percentage of tests",
+       fill = str_c("Timeliness of test results"),
+       caption="Timely = within 5 days of symptoms; Regular = between 6 and 10 days; Late = after 10 days.") +
+  scale_x_date(date_breaks = "1 months",
+               date_labels ="%b %y",
+               expand = c(0.01, 0.03))+
+  theme_minimal()+
+  ggtitle("Timeliness of SARS-CoV-2 RT-PCR test results in Colombia")+
+  theme(legend.position = "bottom",
+        legend.box = "horizontal",
+        legend.title = element_text(size = 14, face = "bold"),
+        legend.text = element_text(size = 12),
+        axis.text.x = element_text(angle = 90, vjust = .25, hjust = 0.95, size = 14),
+        axis.title = element_blank(),
+        axis.ticks = element_line(size = 1, colour = "black"),
+        axis.title.y = element_text(face = "bold", size = 14),
+        axis.text.y = element_text(size = 14),
+        plot.title = element_text(size = 14, face = "bold"))
+  
+```
+
+```{r figure 1 colombia by state, echo = F}
+
+plot_col_state_lat1 <- ggplot(base_colombia_v1[!is.na(timing_testing),], aes(x = fecha_notificacion, fill = timing_testing))+
+  geom_bar(position = "fill", na.rm =T) +
+  scale_y_continuous(labels = scales::percent) +
+  scale_fill_brewer(palette = "Dark2")+
+  facet_wrap(~Departamento_nom)+
+  labs(y = "Percentage of tests",
+       fill = str_c("Patient timing to testing"),
+       caption= "Early tester = within 5 days of symptoms; Late tester = between 6 and 10 days; 
+       Very late tester= after 10 days.") +
+  scale_x_date(date_breaks = "1 months",
+               date_labels ="%b %y",
+               expand = c(0.01, 0.03))+
+  theme_minimal()+
+  ggtitle("Timing of patient arrival to testing in Colombia (by department/state)")+
+  theme(legend.position = "bottom",
+        legend.box = "horizontal",
+        legend.title = element_text(size = 10, face = "bold"),
+        legend.text = element_text(size = 8),
+        axis.text.x = element_text(angle = 90, vjust = .25, hjust = 0.95),
+        axis.title = element_blank(),
+        axis.ticks = element_line(size = 1, colour = "black"),
+        axis.title.y = element_text(face = "bold", size = 14),
+        axis.text.y = element_text(),
+        plot.title = element_text(size = 14, face = "bold"))
+
+plot_col_state_lat1 <- ggplot(base_colombia_v1[!is.na(timing_result),], aes(x = fecha_notificacion, fill = timing_result))+
+  geom_bar(position = "fill", na.rm =T) +
+  scale_y_continuous(labels = scales::percent) +
+  scale_fill_brewer(palette = "Dark2")+
+  facet_wrap(~Departamento_nom)+
+  labs(y = "Percentage of tests",
+       fill = str_c("Speed of test results"),
+       caption="Quick = within 2 days of sampling; Delayed = after 2 days.") +
+  scale_x_date(date_breaks = "1 months",
+               date_labels ="%b %y",
+               expand = c(0.01, 0.03))+
+  theme_minimal()+
+  ggtitle("Speed of SARS-CoV-2 RT-PCR test results in Colombia (by department/state)")+
+  theme(legend.position = "bottom",
+        legend.box = "horizontal",
+        legend.title = element_text(size = 10, face = "bold"),
+        legend.text = element_text(size = 8),
+        axis.text.x = element_text(angle = 90, vjust = .25, hjust = 0.95),
+        axis.title = element_blank(),
+        axis.ticks = element_line(size = 1, colour = "black"),
+        axis.title.y = element_text(face = "bold", size = 14),
+        axis.text.y = element_text(),
+        plot.title = element_text(size = 14, face = "bold"))
+  
+
+plot_col_state_lat1 <- ggplot(base_colombia_v1[!is.na(timing_global),], aes(x = fecha_notificacion, fill = timing_global))+
+  geom_bar(position = "fill", na.rm =T) +
+  scale_y_continuous(labels = scales::percent) +
+  scale_fill_brewer(palette = "Dark2")+
+  facet_wrap(~Departamento_nom)+
+  labs(y = "Percentage of tests",
+       fill = str_c("Timeliness of test results"),
+       caption="Timely = within 5 days of symptoms; Regular = between 6 and 10 days; Late = after 10 days.") +
+  scale_x_date(date_breaks = "2 months",
+               date_labels ="%b %y",
+               expand = c(0.01, 0.03))+
+  theme_minimal()+
+  ggtitle("Timeliness of SARS-CoV-2 RT-PCR test results in Colombia (by department/state)")+
+  theme(legend.position = "bottom",
+        legend.box = "horizontal",
+        legend.title = element_text(size = 10, face = "bold"),
+        legend.text = element_text(size = 8),
+        axis.text.x = element_text(angle = 90, vjust = .25, hjust = 0.95),
+        axis.title = element_blank(),
+        axis.ticks = element_line(size = 1, colour = "black"),
+        axis.title.y = element_text(face = "bold", size = 14),
+        axis.text.y = element_text(),
+        plot.title = element_text(size = 14, face = "bold"))
+```
+
+Abajo hacemos los cálculos de media móvil
+
+```{r Moving mean colombia and mexico country wide, echo = F, eval = F, warning = F}
+mm_colombia <- rbindlist(list(as.data.table(base_colombia_v1 %>% 
+  group_by(fecha_notificacion) %>% 
+  arrange(.by_group = T) %>% 
+  summarise(media_lat = mean(latencia_1, na.rm =T)))[,
+    `:=`(media_mov_lat = rollmean(media_lat, k = 7, align = "right", fill = NA),
+         periodo = "Latency one")
+  ], as.data.table(base_colombia_v1 %>% 
+  group_by(fecha_notificacion) %>% 
+  arrange(.by_group = T) %>% 
+  summarise(media_lat = mean(latencia_2, na.rm =T)))[,
+    `:=`(media_mov_lat = rollmean(media_lat, k = 7, align = "right", fill = NA),
+         periodo = "Latency two")
+  ], as.data.table(base_colombia_v1 %>% 
+  group_by(fecha_notificacion) %>% 
+  arrange(.by_group = T) %>% 
+  summarise(media_lat = mean(latencia_total, na.rm =T)))[,
+    `:=`(media_mov_lat = rollmean(media_lat, k = 7, align = "right", fill = NA),
+         periodo = "Total latency")
+  ]))
+
+plot_col_latency <- ggplot(mm_colombia, aes(y = media_mov_lat, x = fecha_notificacion,
+                                            linetype = periodo))+
+  geom_line(size = 1.5, na.rm = T) +
+  scale_linetype_manual(values=c("dotted", "twodash", "solid"))+
+  theme_bw() +
+  scale_x_date(date_breaks = "2 weeks",
+               date_labels ="%d %b %y",
+               expand = c(0.02,0))+
+  scale_y_continuous(breaks=seq(from=0,to=20,by=2),
+                     limits=c(0,20))+
+  labs(x = "Date",
+       y = "Days")+
+  ggtitle("A)")+
+  theme(legend.title = element_blank(),
+        legend.text = element_text(size=8, 
+                                     face="bold"),
+        legend.position = c(.8, .85),
+        axis.text.x = element_text(angle = 90, vjust = .25, hjust = 0.95, 
+                               size = 14, face = "bold", colour="black"),
+        axis.title.x = element_text(face = "bold", size = 14),
+        axis.ticks = element_line(size = 1, colour = "black"),
+        axis.title.y = element_text(face = "bold", size = 14),
+        axis.text.y = element_text(size = 14, face = "bold", colour = "black"),
+        plot.title = element_text(size = 14, face = "bold"),
+        panel.grid.minor = element_blank(),
+        panel.grid.major = element_blank(),
+        panel.border = element_blank(),
+        axis.line = element_line(colour = "black"))
+
+
+
+#MEDIA MÓVIL MEXICO
+mm_mexico <- rbindlist(list(as.data.table(base_completa_mex_full_v2 %>% 
+  group_by(FECHA_INGRESO) %>% 
+  arrange(.by_group = T) %>% 
+  summarise(media_lat = mean(LATENCIA_1, na.rm =T)))[,
+    `:=`(media_mov_lat = rollmean(media_lat, k = 7, align = "right", fill = NA),
+         periodo = "Latency one")
+  ], as.data.table(base_completa_mex_full_v2 %>% 
+  group_by(FECHA_INGRESO) %>% 
+  arrange(.by_group = T) %>% 
+  summarise(media_lat = mean(LATENCIA_2, na.rm =T)))[,
+    `:=`(media_mov_lat = rollmean(media_lat, k = 7, align = "right", fill = NA),
+         periodo = "Latency two")
+  ], as.data.table(base_completa_mex_full_v2 %>% 
+  group_by(FECHA_INGRESO) %>% 
+  arrange(.by_group = T) %>% 
+  summarise(media_lat = mean(LATENCIA_TOTAL, na.rm =T)))[,
+    `:=`(media_mov_lat = rollmean(media_lat, k = 7, align = "right", fill = NA),
+         periodo = "Total latency")
+  ]))
+
+plot_mex_latency <- ggplot(mm_mexico, aes(y = media_mov_lat, x = FECHA_INGRESO, linetype = periodo))+
+  geom_line( size = 1.5, na.rm = T) +
+  theme_bw() +
+  scale_linetype_manual(values=c("dotted", "twodash", "solid"))+
+  scale_x_date(date_breaks = "2 weeks",
+               date_labels ="%d %b %y",
+               expand = c(0.02,0))+
+  scale_y_continuous(breaks=seq(from=0,to=20,by=2),
+                     limits=c(0,20))+
+  labs(x = "Date",
+       y = "Days")+
+  ggtitle("B)")+
+  theme(legend.position = "none",
+        axis.text.x = element_text(angle = 90, vjust = .25, hjust = 0.95, 
+                               size = 14, face = "bold", colour="black"),
+        axis.title.x = element_text(face = "bold", size = 14),
+        axis.ticks = element_line(size = 1, colour = "black"),
+        axis.title.y = element_text(face = "bold", size = 14),
+        axis.text.y = element_text(size = 14, face = "bold", colour = "black"),
+        plot.title = element_text(size = 14, face = "bold"),
+        panel.grid.minor = element_blank(),
+        panel.grid.major = element_blank(),
+        panel.border = element_blank(),
+        axis.line = element_line(colour = "black"))
+
+
+
+
+pruebas_por_dia_mx <- base_completa_mex_full_v2 %>% 
+  group_by(FECHA_INGRESO) %>% 
+  count() %>% 
+  ungroup() %>% 
+  mutate(media_movil = rollmean(n, k=7, align = "right", fill = NA)) %>% 
+  rename(pruebas_por_dia = n)
+
+
+plot_mex_daily_tests <- ggplot(pruebas_por_dia_mx, aes(y = media_movil, x = FECHA_INGRESO))+
+  geom_line(size = 1.5) +
+  theme_bw() +
+  scale_x_date(date_breaks = "2 weeks",
+               date_labels ="%d %b %y",
+               expand = c(0.02,0))+
+  labs(x = "Date",
+       y = "Daily tests performed")+
+  theme(legend.position = "none",
+        legend.title = element_blank(),
+        axis.text.x = element_text(angle = 90, vjust = .25, hjust = 0.95),
+        axis.title = element_blank(),
+        axis.ticks = element_line(size = 1, colour = "black"),
+        axis.title.y = element_text(face = "bold", size = 14),
+        axis.text.y = element_text(),
+        plot.title = element_text(size = 14, face = "bold"))
+
+plot_mex_latency+plot_mex_daily_tests
+
+
+
+#Gráfica conjunta
+plot_combinada <- plot_col_latency+plot_mex_latency
+ 
+
+```
+
+Para cada estado se tiene que calcular la media móvil, esto podría tomar tiempo.
+
+```{r Moving mean Colombia by state, echo = F, eval = F, warning=F}
+estados_colombia <- str_replace_all(levels(factor(base_colombia_v1$Departamento_nom))," ", "_")
+base_colombia_media_movil <- as.data.table(base_colombia_v1 %>%
+                                           select(Departamento_nom, latencia_1, latencia_2, 
+                                                  latencia_total, fecha_notificacion))
+  
+
+
+
+#LATENCIAS estados Colombia
+for(i in 1:length(estados_colombia)){
+  if(i == 1){
+mm_colombia_estados <- rbindlist(list(as.data.table(filter(base_colombia_v1,
+                                                         Departamento_nom==estados_colombia[i]) %>% 
+                                                    group_by(fecha_notificacion) %>% 
+                                                    arrange(.by_group = T) %>% 
+                                                    summarise(Departamento_nom = first(Departamento_nom),
+                                                              media_lat = mean(latencia_1, na.rm =T)))[,
+                                                                                                       `:=`(media_mov_lat = rollmean(media_lat, k = 7, align = "right", fill = NA),
+                                                                                                            periodo = "Latency one")],
+                                    as.data.table(filter(base_colombia_v1,
+                                                         Departamento_nom==estados_colombia[i]) %>% 
+                                                    group_by(fecha_notificacion) %>% 
+                                                    arrange(.by_group = T) %>% 
+                                                    summarise(Departamento_nom = first(Departamento_nom),
+                                                              media_lat = mean(latencia_2, na.rm =T)))[,
+                                                                                                       `:=`(media_mov_lat = rollmean(media_lat, k = 7, align = "right", fill = NA),
+                                                                                                            periodo = "Latency two")],
+                                    as.data.table(filter(base_colombia_v1,
+                                                         Departamento_nom==estados_colombia[i]) %>% 
+                                                    group_by(fecha_notificacion) %>%                                                                                                                                                                   arrange(.by_group = T) %>%summarise(Departamento_nom = first(Departamento_nom),
+media_lat = mean(latencia_total, na.rm =T)))[,`:=`(media_mov_lat = rollmean(media_lat, k = 7, align = "right", fill = NA),periodo = "Total latency")]))
+  }else{
+    mm_colombia_estados <- rbindlist(list(mm_colombia_estados, as.data.table(filter(base_colombia_v1,
+                                                             Departamento_nom==estados_colombia[i]) %>% 
+                                                        group_by(fecha_notificacion) %>% 
+                                                        arrange(.by_group = T) %>% 
+                                                        summarise(Departamento_nom = first(Departamento_nom),
+                                                                  media_lat = mean(latencia_1, na.rm =T)))[,
+                                                                                                           `:=`(media_mov_lat = rollmean(media_lat, k = 7, align = "right", fill = NA),
+                                                                                                                periodo = "Latency one")],
+                                        as.data.table(filter(base_colombia_v1,
+                                                             Departamento_nom==estados_colombia[i]) %>% 
+                                                        group_by(fecha_notificacion) %>% 
+                                                        arrange(.by_group = T) %>% 
+                                                        summarise(Departamento_nom = first(Departamento_nom),
+                                                                  media_lat = mean(latencia_2, na.rm =T)))[,
+                                                                                                           `:=`(media_mov_lat = rollmean(media_lat, k = 7, align = "right", fill = NA),
+                                                                                                                periodo = "Latency two")],
+                                        as.data.table(filter(base_colombia_v1,
+                                                             Departamento_nom==estados_colombia[i]) %>% 
+                                                        group_by(fecha_notificacion) %>%                                                                                                                                                                   arrange(.by_group = T) %>%summarise(Departamento_nom = first(Departamento_nom),
+media_lat = mean(latencia_total, na.rm =T)))[,`:=`(media_mov_lat = rollmean(media_lat, k = 7, align = "right", fill = NA),periodo = "Total latency")]))
+  }
+}
+  
+
+
+plot_col_estado_latency <- ggplot(mm_colombia_estados, aes(y = media_mov_lat, x = fecha_notificacion, colour = periodo))+
+  geom_line(size = 1.5) +
+  theme_bw() +
+  scale_x_date(date_breaks = "1 month",
+               date_labels ="%d %b %y",
+               expand = c(0.02,0))+
+  scale_y_continuous(breaks=seq(from=0,to=30,by=5),
+                     limits=c(0,30))+
+  labs(x = "Date",
+       y = "Days")+
+  facet_wrap(~Departamento_nom, ncol = 4)+
+  theme(legend.position = "bottom",
+        legend.title = element_blank(),
+        axis.text.x = element_text(angle = 90, vjust = .25, hjust = 0.95),
+        axis.title = element_blank(),
+        axis.ticks = element_line(size = 1, colour = "black"),
+        axis.title.y = element_text(face = "bold", size = 14),
+        axis.text.y = element_text(),
+        plot.title = element_text(size = 14, face = "bold"))
+
+#save(mm_colombia_estados, file = "mm_colombia_estados.RDa")
+```
+
+```{r Moving mean Mexico by state, echo = F, eval = F, warning=F}
+estados_mexico <- str_replace_all(levels(factor(base_completa_mex_full_v2$ENTIDAD_RES_NOM))," ", "_")
+base_mexico_media_movil <- as.data.table(base_completa_mex_full_v2 %>%
+                                           select(ENTIDAD_RES_NOM, LATENCIA_1, LATENCIA_2, 
+                                                  LATENCIA_TOTAL, FECHA_INGRESO))
+  
+
+
+
+#LATENCIAS estados México
+for(i in 1:length(estados_mexico)){
+  if(i == 1){
+mm_mexico_estados <- rbindlist(list(as.data.table(filter(base_completa_mex_full_v2,
+                                                         ENTIDAD_RES_NOM==estados_mexico[i]) %>% 
+                                                    group_by(FECHA_INGRESO) %>% 
+                                                    arrange(.by_group = T) %>% 
+                                                    summarise(ENTIDAD_RES_NOM = first(ENTIDAD_RES_NOM),
+                                                              media_lat = mean(LATENCIA_1, na.rm =T)))[,
+                                                                                                       `:=`(media_mov_lat = rollmean(media_lat, k = 7, align = "right", fill = NA),
+                                                                                                            periodo = "Latency one")],
+                                    as.data.table(filter(base_completa_mex_full_v2,
+                                                         ENTIDAD_RES_NOM==estados_mexico[i]) %>% 
+                                                    group_by(FECHA_INGRESO) %>% 
+                                                    arrange(.by_group = T) %>% 
+                                                    summarise(ENTIDAD_RES_NOM = first(ENTIDAD_RES_NOM),
+                                                              media_lat = mean(LATENCIA_2, na.rm =T)))[,
+                                                                                                       `:=`(media_mov_lat = rollmean(media_lat, k = 7, align = "right", fill = NA),
+                                                                                                            periodo = "Latency two")],
+                                    as.data.table(filter(base_completa_mex_full_v2,
+                                                         ENTIDAD_RES_NOM==estados_mexico[i]) %>% 
+                                                    group_by(FECHA_INGRESO) %>%                                                                                                                                                                   arrange(.by_group = T) %>%summarise(ENTIDAD_RES_NOM = first(ENTIDAD_RES_NOM),
+media_lat = mean(LATENCIA_TOTAL, na.rm =T)))[,`:=`(media_mov_lat = rollmean(media_lat, k = 7, align = "right", fill = NA),periodo = "Total latency")]))
+  }else{
+    mm_mexico_estados <- rbindlist(list(mm_mexico_estados, as.data.table(filter(base_completa_mex_full_v2,
+                                                             ENTIDAD_RES_NOM==estados_mexico[i]) %>% 
+                                                        group_by(FECHA_INGRESO) %>% 
+                                                        arrange(.by_group = T) %>% 
+                                                        summarise(ENTIDAD_RES_NOM = first(ENTIDAD_RES_NOM),
+                                                                  media_lat = mean(LATENCIA_1, na.rm =T)))[,
+                                                                                                           `:=`(media_mov_lat = rollmean(media_lat, k = 7, align = "right", fill = NA),
+                                                                                                                periodo = "Latency one")],
+                                        as.data.table(filter(base_completa_mex_full_v2,
+                                                             ENTIDAD_RES_NOM==estados_mexico[i]) %>% 
+                                                        group_by(FECHA_INGRESO) %>% 
+                                                        arrange(.by_group = T) %>% 
+                                                        summarise(ENTIDAD_RES_NOM = first(ENTIDAD_RES_NOM),
+                                                                  media_lat = mean(LATENCIA_2, na.rm =T)))[,
+                                                                                                           `:=`(media_mov_lat = rollmean(media_lat, k = 7, align = "right", fill = NA),
+                                                                                                                periodo = "Latency two")],
+                                        as.data.table(filter(base_completa_mex_full_v2,
+                                                             ENTIDAD_RES_NOM==estados_mexico[i]) %>% 
+                                                        group_by(FECHA_INGRESO) %>%                                                                                                                                                                   arrange(.by_group = T) %>%summarise(ENTIDAD_RES_NOM = first(ENTIDAD_RES_NOM),
+media_lat = mean(LATENCIA_TOTAL, na.rm =T)))[,`:=`(media_mov_lat = rollmean(media_lat, k = 7, align = "right", fill = NA),periodo = "Total latency")]))
+  }
+}
+  
+
+
+plot_mex_estado_latency <- ggplot(mm_mexico_estados, aes(y = media_mov_lat, x = FECHA_INGRESO, colour = periodo))+
+  geom_line( size = 1.5) +
+  theme_bw() +
+  scale_x_date(date_breaks = "1 month",
+               date_labels ="%d %b %y",
+               expand = c(0.02,0))+
+  scale_y_continuous(breaks=seq(from=0,to=30,by=5),
+                     limits=c(0,30))+
+  labs(x = "Date",
+       y = "Days")+
+  facet_wrap(~ENTIDAD_RES_NOM, ncol = 4)+
+  theme(legend.position = "bottom",
+        legend.title = element_blank(),
+        axis.text.x = element_text(angle = 90, vjust = .25, hjust = 0.95),
+        axis.title = element_blank(),
+        axis.ticks = element_line(size = 1, colour = "black"),
+        axis.title.y = element_text(face = "bold", size = 14),
+        axis.text.y = element_text(),
+        plot.title = element_text(size = 14, face = "bold"))
+
+#save(mm_mexico_estados, file = "mm_mexico_estados.RDa")
+```
+
+
+```{r moving mean colombia and mexico by quintile, include =F, run = F}
+mm_colombia <- rbindlist(list(as.data.table(base_colombia_v1 %>% 
+  group_by(fecha_notificacion) %>% 
+  arrange(.by_group = T) %>% 
+  summarise(media_lat = mean(latencia_1, na.rm =T)))[,
+    `:=`(media_mov_lat = rollmean(media_lat, k = 7, align = "right", fill = NA),
+         periodo = "Delay one")
+  ], as.data.table(base_colombia_v1 %>% 
+  group_by(fecha_notificacion) %>% 
+  arrange(.by_group = T) %>% 
+  summarise(media_lat = mean(latencia_2, na.rm =T)))[,
+    `:=`(media_mov_lat = rollmean(media_lat, k = 7, align = "right", fill = NA),
+         periodo = "Delay two")
+  ], as.data.table(base_colombia_v1 %>% 
+  group_by(fecha_notificacion) %>% 
+  arrange(.by_group = T) %>% 
+  summarise(media_lat = mean(latencia_total, na.rm =T)))[,
+    `:=`(media_mov_lat = rollmean(media_lat, k = 7, align = "right", fill = NA),
+         periodo = "Total delay")
+  ]))
+
+plot_col_delay <- ggplot(mm_colombia, aes(y = media_mov_lat, x = fecha_notificacion,
+                                            linetype = periodo))+
+  geom_line(size = 1.5, na.rm = T) +
+  scale_linetype_manual(values=c("dotted", "twodash", "solid"))+
+  theme_bw() +
+  scale_x_date(date_breaks = "2 weeks",
+               date_labels ="%d %b %y",
+               expand = c(0.02,0))+
+  scale_y_continuous(breaks=seq(from=0,to=20,by=2),
+                     limits=c(0,20))+
+  labs(x = "Date",
+       y = "Days")+
+  ggtitle("A)")+
+  theme(legend.title = element_blank(),
+        legend.text = element_text(size=8, 
+                                     face="bold"),
+        legend.position = c(.8, .85),
+        axis.text.x = element_text(angle = 90, vjust = .25, hjust = 0.95, 
+                               size = 14, face = "bold", colour="black"),
+        axis.title.x = element_text(face = "bold", size = 14),
+        axis.ticks = element_line(size = 1, colour = "black"),
+        axis.title.y = element_text(face = "bold", size = 14),
+        axis.text.y = element_text(size = 14, face = "bold", colour = "black"),
+        plot.title = element_text(size = 14, face = "bold"),
+        panel.grid.minor = element_blank(),
+        panel.grid.major = element_blank(),
+        panel.border = element_blank(),
+        axis.line = element_line(colour = "black"))
+
+
+
+#MEDIA MÓVIL MEXICO
+mm_mexico <- rbindlist(list(as.data.table(base_completa_mex_full_v2 %>% 
+  group_by(FECHA_INGRESO) %>% 
+  arrange(.by_group = T) %>% 
+  summarise(media_lat = mean(LATENCIA_1, na.rm =T)))[,
+    `:=`(media_mov_lat = rollmean(media_lat, k = 7, align = "right", fill = NA),
+         periodo = "Delay one")
+  ], as.data.table(base_completa_mex_full_v2 %>% 
+  group_by(FECHA_INGRESO) %>% 
+  arrange(.by_group = T) %>% 
+  summarise(media_lat = mean(LATENCIA_2, na.rm =T)))[,
+    `:=`(media_mov_lat = rollmean(media_lat, k = 7, align = "right", fill = NA),
+         periodo = "Delay two")
+  ], as.data.table(base_completa_mex_full_v2 %>% 
+  group_by(FECHA_INGRESO) %>% 
+  arrange(.by_group = T) %>% 
+  summarise(media_lat = mean(LATENCIA_TOTAL, na.rm =T)))[,
+    `:=`(media_mov_lat = rollmean(media_lat, k = 7, align = "right", fill = NA),
+         periodo = "Total delay")
+  ]))
+
+plot_mex_delay <- ggplot(mm_mexico, aes(y = media_mov_lat, x = FECHA_INGRESO, linetype = periodo))+
+  geom_line( size = 1.5, na.rm = T) +
+  theme_bw() +
+  scale_linetype_manual(values=c("dotted", "twodash", "solid"))+
+  scale_x_date(date_breaks = "4 weeks",
+               date_labels ="%d %b %y",
+               expand = c(0.02,0))+
+  scale_y_continuous(breaks=seq(from=0,to=20,by=2),
+                     limits=c(0,20))+
+  labs(x = "Date",
+       y = "Days")+
+  ggtitle("B)")+
+   theme(legend.title = element_blank(),
+        legend.text = element_text(size=8, 
+                                     face="bold"),
+        legend.position = "none",
+        axis.text.x = element_text(angle = 90, vjust = .25, hjust = 0.95, 
+                               size = 14, face = "bold", colour="black"),
+        axis.title.x = element_text(face = "bold", size = 14),
+        axis.ticks = element_line(size = 1, colour = "black"),
+        axis.title.y = element_text(face = "bold", size = 14),
+        axis.text.y = element_text(size = 14, face = "bold", colour = "black"),
+        plot.title = element_text(size = 14, face = "bold"),
+        panel.grid.minor = element_blank(),
+        panel.grid.major = element_blank(),
+        panel.border = element_blank(),
+        axis.line = element_line(colour = "black"))
+
+
+
+
+pruebas_por_dia_mx <- base_completa_mex_full_v2 %>% 
+  group_by(FECHA_INGRESO) %>% 
+  count() %>% 
+  ungroup() %>% 
+  mutate(media_movil = rollmean(n, k=7, align = "right", fill = NA)) %>% 
+  rename(pruebas_por_dia = n)
+
+
+plot_mex_daily_tests <- ggplot(pruebas_por_dia_mx, aes(y = media_movil, x = FECHA_INGRESO))+
+  geom_line(size = 1.5) +
+  theme_bw() +
+  scale_x_date(date_breaks = "2 weeks",
+               date_labels ="%d %b %y",
+               expand = c(0.02,0))+
+  labs(x = "Date",
+       y = "Daily tests performed")+
+  theme(legend.position = "none",
+        legend.title = element_blank(),
+        axis.text.x = element_text(angle = 90, vjust = .25, hjust = 0.95),
+        axis.title = element_blank(),
+        axis.ticks = element_line(size = 1, colour = "black"),
+        axis.title.y = element_text(face = "bold", size = 14),
+        axis.text.y = element_text(),
+        plot.title = element_text(size = 14, face = "bold"))
+
+plot_mex_latency+plot_mex_daily_tests
+
+
+
+#Gráfica conjunta
+plot_combinada <- plot_col_latency+plot_mex_latency
+
+```
+
+```{r moving mean colombia and mexico by margination quintile, include =F, run = F}
+mm_colombia <- rbindlist(list(as.data.table(base_colombia_v1 %>% 
+  group_by(fecha_notificacion) %>% 
+  arrange(.by_group = T) %>% 
+  summarise(media_lat = mean(latencia_1, na.rm =T)))[,
+    `:=`(media_mov_lat = rollmean(media_lat, k = 7, align = "right", fill = NA),
+         periodo = "Delay one")
+  ], as.data.table(base_colombia_v1 %>% 
+  group_by(fecha_notificacion) %>% 
+  arrange(.by_group = T) %>% 
+  summarise(media_lat = mean(latencia_2, na.rm =T)))[,
+    `:=`(media_mov_lat = rollmean(media_lat, k = 7, align = "right", fill = NA),
+         periodo = "Delay two")
+  ], as.data.table(base_colombia_v1 %>% 
+  group_by(fecha_notificacion) %>% 
+  arrange(.by_group = T) %>% 
+  summarise(media_lat = mean(latencia_total, na.rm =T)))[,
+    `:=`(media_mov_lat = rollmean(media_lat, k = 7, align = "right", fill = NA),
+         periodo = "Total delay")
+  ]))
+
+plot_col_delay <- ggplot(mm_colombia, aes(y = media_mov_lat, x = fecha_notificacion,
+                                            linetype = periodo))+
+  geom_line(size = 1.5, na.rm = T) +
+  scale_linetype_manual(values=c("dotted", "twodash", "solid"))+
+  theme_bw() +
+  scale_x_date(date_breaks = "2 weeks",
+               date_labels ="%d %b %y",
+               expand = c(0.02,0))+
+  scale_y_continuous(breaks=seq(from=0,to=20,by=2),
+                     limits=c(0,20))+
+  labs(x = "Date",
+       y = "Days")+
+  ggtitle("A)")+
+  theme(legend.title = element_blank(),
+        legend.text = element_text(size=8, 
+                                     face="bold"),
+        legend.position = c(.8, .85),
+        axis.text.x = element_text(angle = 90, vjust = .25, hjust = 0.95, 
+                               size = 14, face = "bold", colour="black"),
+        axis.title.x = element_text(face = "bold", size = 14),
+        axis.ticks = element_line(size = 1, colour = "black"),
+        axis.title.y = element_text(face = "bold", size = 14),
+        axis.text.y = element_text(size = 14, face = "bold", colour = "black"),
+        plot.title = element_text(size = 14, face = "bold"),
+        panel.grid.minor = element_blank(),
+        panel.grid.major = element_blank(),
+        panel.border = element_blank(),
+        axis.line = element_line(colour = "black"))
+
+
+
+#MEDIA MÓVIL MEXICO
+mm_mexico <- rbindlist(list(as.data.table(base_completa_mex_full_v2 %>% 
+  group_by(FECHA_INGRESO) %>% 
+  arrange(.by_group = T) %>% 
+  summarise(media_lat = mean(LATENCIA_1, na.rm =T)))[,
+    `:=`(media_mov_lat = rollmean(media_lat, k = 7, align = "right", fill = NA),
+         periodo = "Delay one")
+  ], as.data.table(base_completa_mex_full_v2 %>% 
+  group_by(FECHA_INGRESO) %>% 
+  arrange(.by_group = T) %>% 
+  summarise(media_lat = mean(LATENCIA_2, na.rm =T)))[,
+    `:=`(media_mov_lat = rollmean(media_lat, k = 7, align = "right", fill = NA),
+         periodo = "Delay two")
+  ], as.data.table(base_completa_mex_full_v2 %>% 
+  group_by(FECHA_INGRESO) %>% 
+  arrange(.by_group = T) %>% 
+  summarise(media_lat = mean(LATENCIA_TOTAL, na.rm =T)))[,
+    `:=`(media_mov_lat = rollmean(media_lat, k = 7, align = "right", fill = NA),
+         periodo = "Total delay")
+  ]))
+
+plot_mex_delay <- ggplot(mm_mexico, aes(y = media_mov_lat, x = FECHA_INGRESO, linetype = periodo))+
+  geom_line( size = 1.5, na.rm = T) +
+  theme_bw() +
+  scale_linetype_manual(values=c("dotted", "twodash", "solid"))+
+  scale_x_date(date_breaks = "4 weeks",
+               date_labels ="%d %b %y",
+               expand = c(0.02,0))+
+  scale_y_continuous(breaks=seq(from=0,to=20,by=2),
+                     limits=c(0,20))+
+  labs(x = "Date",
+       y = "Days")+
+  ggtitle("B)")+
+   theme(legend.title = element_blank(),
+        legend.text = element_text(size=8, 
+                                     face="bold"),
+        legend.position = "none",
+        axis.text.x = element_text(angle = 90, vjust = .25, hjust = 0.95, 
+                               size = 14, face = "bold", colour="black"),
+        axis.title.x = element_text(face = "bold", size = 14),
+        axis.ticks = element_line(size = 1, colour = "black"),
+        axis.title.y = element_text(face = "bold", size = 14),
+        axis.text.y = element_text(size = 14, face = "bold", colour = "black"),
+        plot.title = element_text(size = 14, face = "bold"),
+        panel.grid.minor = element_blank(),
+        panel.grid.major = element_blank(),
+        panel.border = element_blank(),
+        axis.line = element_line(colour = "black"))
+
+
+
+
+pruebas_por_dia_mx <- base_completa_mex_full_v2 %>% 
+  group_by(FECHA_INGRESO) %>% 
+  count() %>% 
+  ungroup() %>% 
+  mutate(media_movil = rollmean(n, k=7, align = "right", fill = NA)) %>% 
+  rename(pruebas_por_dia = n)
+
+
+plot_mex_daily_tests <- ggplot(pruebas_por_dia_mx, aes(y = media_movil, x = FECHA_INGRESO))+
+  geom_line(size = 1.5) +
+  theme_bw() +
+  scale_x_date(date_breaks = "2 weeks",
+               date_labels ="%d %b %y",
+               expand = c(0.02,0))+
+  labs(x = "Date",
+       y = "Daily tests performed")+
+  theme(legend.position = "none",
+        legend.title = element_blank(),
+        axis.text.x = element_text(angle = 90, vjust = .25, hjust = 0.95),
+        axis.title = element_blank(),
+        axis.ticks = element_line(size = 1, colour = "black"),
+        axis.title.y = element_text(face = "bold", size = 14),
+        axis.text.y = element_text(),
+        plot.title = element_text(size = 14, face = "bold"))
+
+plot_mex_latency+plot_mex_daily_tests
+
+
+
+#Gráfica conjunta
+plot_combinada <- plot_col_latency+plot_mex_latency
+
+```
+
+```{r moving mean mexico by hospitalization, include = F, run = F}
+#MEDIA MÓVIL MEXICO
+mm_mexico_hosp <- rbindlist(list(as.data.table(base_completa_mex_full_v2 %>% 
+                                                     mutate(HOSPITALIZADO = if_else(TIPO_PACIENTE==2, "Hospitalized", "Ambulatory")) %>% 
+  group_by(HOSPITALIZADO, FECHA_INGRESO) %>% 
+  arrange(.by_group = T) %>% 
+  summarise(media_lat = mean(LATENCIA_1, na.rm =T)))[,
+    `:=`(media_mov_lat = rollmean(media_lat, k = 7, align = "right", fill = NA),
+         periodo = "Latency one")
+  ], as.data.table(base_completa_mex_full_v2 %>% 
+  mutate(HOSPITALIZADO = if_else(TIPO_PACIENTE==2, "Hospitalized", "Ambulatory")) %>% 
+  group_by(HOSPITALIZADO, FECHA_INGRESO) %>% 
+  arrange(.by_group = T) %>% 
+  summarise(media_lat = mean(LATENCIA_2, na.rm =T)))[,
+    `:=`(media_mov_lat = rollmean(media_lat, k = 7, align = "right", fill = NA),
+         periodo = "Latency two")
+  ], as.data.table(base_completa_mex_full_v2 %>% 
+  mutate(HOSPITALIZADO = if_else(TIPO_PACIENTE==2, "Hospitalized", "Ambulatory")) %>% 
+  group_by(HOSPITALIZADO, FECHA_INGRESO) %>% 
+  arrange(.by_group = T) %>% 
+  summarise(media_lat = mean(LATENCIA_TOTAL, na.rm =T)))[,
+    `:=`(media_mov_lat = rollmean(media_lat, k = 7, align = "right", fill = NA),
+         periodo = "Total latency")
+  ]))
+
+plot_mex_hosp_latency <- ggplot(mm_mexico_hosp, aes(y = media_mov_lat, x = FECHA_INGRESO, colour = periodo))+
+  geom_line( size = 1.5, na.rm = T) +
+  facet_wrap(~HOSPITALIZADO, ncol = 1)+
+  theme_bw() +
+  scale_x_date(date_breaks = "2 weeks",
+               date_labels ="%d %b %y",
+               expand = c(0.02,0))+
+  scale_y_continuous(breaks=seq(from=0,to=20,by=5),
+                     limits=c(0,20))+
+  labs(x = "Date",
+       y = "Days")+
+  theme(legend.position = "none",
+        legend.title = element_blank(),
+        axis.text.x = element_text(angle = 90, vjust = .25, hjust = 0.95),
+        axis.title = element_blank(),
+        axis.ticks = element_line(size = 1, colour = "black"),
+        axis.title.y = element_text(face = "bold", size = 14),
+        axis.text.y = element_text(),
+        plot.title = element_text(size = 14, face = "bold"))
+```
+
+```{r proporcion de pruebas rápidas según estatus socioeconómico, include = F}
+ult_base_mexico <- fread("E:/Protocolos de investigación/Bases de datos diarias/210331COVID19MEXICO.csv") %>% left_join(
+                                       inegi_sum_v2, by = c("ENTIDAD_RES", "MUNICIPIO_RES")) %>% 
+  filter(!is.na(IAM_MUNICIPIO)) %>% 
+  mutate(QUINTIL_IAM_MUNICIPIO = factor(case_when(
+    IAM_MUNICIPIO <= quantile(IAM_MUNICIPIO, probs = seq(0,1,.2))[2]~"Quintile 1",
+    IAM_MUNICIPIO > quantile(IAM_MUNICIPIO, probs = seq(0,1,.2))[2]&IAM_MUNICIPIO<=quantile(IAM_MUNICIPIO, 
+                                                                                            probs = seq(0,1,.2))[3]~"Quintile 2",
+    IAM_MUNICIPIO > quantile(IAM_MUNICIPIO, probs = seq(0,1,.2))[3]&IAM_MUNICIPIO<=quantile(IAM_MUNICIPIO, 
+                                                                                            probs = seq(0,1,.2))[4]~"Quintile 3",
+    IAM_MUNICIPIO > quantile(IAM_MUNICIPIO, probs = seq(0,1,.2))[4]&IAM_MUNICIPIO<=quantile(IAM_MUNICIPIO, 
+                                                                                            probs = seq(0,1,.2))[5]~"Quintile 4",
+    IAM_MUNICIPIO > quantile(IAM_MUNICIPIO, probs = seq(0,1,.2))[5]&IAM_MUNICIPIO<=quantile(IAM_MUNICIPIO, 
+                                                                                            probs = seq(0,1,.2))[6]~"Quintile 5",
+  ))) %>% group_by(FECHA_INGRESO, QUINTIL_IAM_MUNICIPIO) %>% 
+  filter(FECHA_INGRESO >="2020-04-01"&
+           FECHA_INGRESO <="2021-01-31") %>% 
+  mutate(antigeno = if_else(TOMA_MUESTRA_ANTIGENO == 2, "No", "Yes"))
+
+ult_base_mexico_2 <- ult_base_mexico %>% 
+  summarise(pruebas_totales_dia = n(),
+            pruebas_antigeno_dia = sum(antigeno == "Yes"),
+            porcentaje_antigeno_dia = round(pruebas_antigeno_dia/pruebas_totales_dia,1)*100)
+
+ult_base_antig <- ult_base_mexico_2 %>% 
+  ungroup() %>% 
+  filter(FECHA_INGRESO >= "2020-11-15") %>% 
+  group_by(QUINTIL_IAM_MUNICIPIO) %>% 
+  summarise(antigenos = sum(pruebas_antigeno_dia),
+            pruebas_totales = sum(pruebas_totales_dia),
+            porcentage_antigeno = round(antigenos/pruebas_totales,3)*100)
+```
+
+
+```{r proporcion de pruebas rápidas según estatus socioeconómico GRAFICA, include = F}
+poc_tests_q1 <- ggplot(filter(ult_base_mexico_2, QUINTIL_IAM_MUNICIPIO=="Quintile 1"), aes(x = FECHA_INGRESO, y = rollmean(porcentaje_antigeno_dia, k = 7, align = "right", fill = NA)))+
+geom_line( size = 1.5, na.rm = T) +
+  scale_x_date(date_breaks = "2 weeks",
+               date_labels ="%d %b %y",
+               limits = c(ymd("2020-11-01", "2021-01-31")))+
+  scale_y_continuous(breaks=seq(from=0,to=100,by=20),
+                     limits=c(0,100))+
+  labs(x = "Date",
+       y = "% of point-of-care tests",
+       title = "Quintile 1")+
+  theme_bw()+
+  theme(legend.position = "none",
+        legend.title = element_blank(),
+        axis.text.x = element_text(angle = 90, vjust = .25, hjust = 0.95),
+        axis.title.x = element_text(face = "bold", size = 8),
+        axis.ticks = element_line(size = 1, colour = "black"),
+        axis.title.y = element_text(face = "bold", size = 8),
+        axis.text.y = element_text(),
+        plot.title = element_text(size = 8, face = "bold"))
+
+poc_tests_q2 <- ggplot(filter(ult_base_mexico_2, QUINTIL_IAM_MUNICIPIO=="Quintile 2"), aes(x = FECHA_INGRESO, y = rollmean(porcentaje_antigeno_dia, k = 7, align = "right", fill = NA)))+
+geom_line( size = 1.5, na.rm = T) +
+  scale_x_date(date_breaks = "2 weeks",
+               date_labels ="%d %b %y",
+               limits = c(ymd("2020-11-01", "2021-01-31")))+
+  scale_y_continuous(breaks=seq(from=0,to=100,by=20),
+                     limits=c(0,100))+
+  labs(x = "Date",
+       y = "% of point-of-care tests",
+       title = "Quintile 2")+
+  theme_bw()+
+  theme(legend.position = "none",
+        legend.title = element_blank(),
+        axis.text.x = element_text(angle = 90, vjust = .25, hjust = 0.95),
+        axis.title.x = element_text(face = "bold", size = 8),
+        axis.ticks = element_line(size = 1, colour = "black"),
+        axis.title.y = element_text(face = "bold", size = 8),
+        axis.text.y = element_text(),
+        plot.title = element_text(size = 8, face = "bold"))
+
+poc_tests_q3 <- ggplot(filter(ult_base_mexico_2, QUINTIL_IAM_MUNICIPIO=="Quintile 3"), aes(x = FECHA_INGRESO, y = rollmean(porcentaje_antigeno_dia, k = 7, align = "right", fill = NA)))+
+geom_line( size = 1.5, na.rm = T) +
+  scale_x_date(date_breaks = "2 weeks",
+               date_labels ="%d %b %y",
+               limits = c(ymd("2020-11-01", "2021-01-31")))+
+  scale_y_continuous(breaks=seq(from=0,to=100,by=20),
+                     limits=c(0,100))+
+  labs(x = "Date",
+       y = "% of point-of-care tests",
+       title = "Quintile 3")+
+  theme_bw()+
+  theme(legend.position = "none",
+        legend.title = element_blank(),
+        axis.text.x = element_text(angle = 90, vjust = .25, hjust = 0.95),
+        axis.title.x = element_text(face = "bold", size = 8),
+        axis.ticks = element_line(size = 1, colour = "black"),
+        axis.title.y = element_text(face = "bold", size = 8),
+        axis.text.y = element_text(),
+        plot.title = element_text(size = 8, face = "bold"))
+
+poc_tests_q4 <- ggplot(filter(ult_base_mexico_2, QUINTIL_IAM_MUNICIPIO=="Quintile 4"), aes(x = FECHA_INGRESO, y = rollmean(porcentaje_antigeno_dia, k = 7, align = "right", fill = NA)))+
+geom_line( size = 1.5, na.rm = T) +
+  scale_x_date(date_breaks = "2 weeks",
+               date_labels ="%d %b %y",
+               limits = c(ymd("2020-11-01", "2021-01-31")))+
+  scale_y_continuous(breaks=seq(from=0,to=100,by=20),
+                     limits=c(0,100))+
+  labs(x = "Date",
+       y = "% of point-of-care tests",
+       title = "Quintile 4")+
+  theme_bw()+
+  theme(legend.position = "none",
+        legend.title = element_blank(),
+        axis.text.x = element_text(angle = 90, vjust = .25, hjust = 0.95),
+        axis.title.x = element_text(face = "bold", size = 8),
+        axis.ticks = element_line(size = 1, colour = "black"),
+        axis.title.y = element_text(face = "bold", size = 8),
+        axis.text.y = element_text(),
+        plot.title = element_text(size = 8, face = "bold"))
+
+poc_tests_q5 <- ggplot(filter(ult_base_mexico_2, QUINTIL_IAM_MUNICIPIO=="Quintile 5"), aes(x = FECHA_INGRESO, y = rollmean(porcentaje_antigeno_dia, k = 7, align = "right", fill = NA)))+
+geom_line( size = 1.5, na.rm = T) +
+  scale_x_date(date_breaks = "2 weeks",
+               date_labels ="%d %b %y",
+               limits = c(ymd("2020-11-01", "2021-01-31")))+
+  scale_y_continuous(breaks=seq(from=0,to=100,by=20),
+                     limits=c(0,100))+
+  labs(x = "Date",
+       y = "% of point-of-care tests",
+       title = "Quintile 5")+
+  theme_bw()+
+  theme(legend.position = "none",
+        legend.title = element_blank(),
+        axis.text.x = element_text(angle = 90, vjust = .25, hjust = 0.95),
+        axis.title.x = element_text(face = "bold", size = 8),
+        axis.ticks = element_line(size = 1, colour = "black"),
+        axis.title.y = element_text(face = "bold", size = 8),
+        axis.text.y = element_text(),
+        plot.title = element_text(size = 8, face = "bold"))
+
+
+
+
+
+```
+
+
+
+```{r table 1, include = F, run = F}
+nrow(filter(base_completa_mex_full_v2, !is.na(LATENCIA_2)))#Aquellos que tienen un resultado disponible
+nrow(filter(base_completa_mex_full_v2, is.na(LATENCIA_2)&#Aquellos que no tienen resultado y tampoco se les tomó prueba de antigeno
+              !is.na(TOMA_MUESTRA_ANTIGENO)&
+              TOMA_MUESTRA_ANTIGENO==2))
+
+
+nrow(filter(base_completa_mex_full_v2, !is.na(TOMA_MUESTRA_ANTIGENO)|#Aquellos a quienes no se les tomó una prueba de antígeno
+              TOMA_MUESTRA_ANTIGENO==2))
+
+#LATENCY PERIODS PER COUNTRY 
+#Colombia
+glimpse(filter(base_colombia_v1) %>% 
+  summarise(media_latencia_1 = round(mean(latencia_1),1),
+            median_lat_1 = str_c(round(median(latencia_1),1), " (", 
+                                 fivenum(latencia_1)[2], "-",
+                                 fivenum(latencia_1)[4], ")"),
+            sd_lat_1 = round(sd(latencia_1),1),
+            media_latencia_2 = round(mean(latencia_2),1),
+            median_lat_2 = str_c(round(median(latencia_2),1), " (", 
+                                 fivenum(latencia_2)[2], "-",
+                                 fivenum(latencia_2)[4], ")"),
+            sd_lat_2 = round(sd(latencia_2),1),
+            media_latencia_T = round(mean(latencia_2),1),
+            median_lat_T = str_c(round(median(latencia_total),1), " (", 
+                                 fivenum(latencia_total)[2], "-",
+                                 fivenum(latencia_total)[4], ")"),
+            sd_lat_T = round(sd(latencia_total),1)))
+#México
+glimpse(filter(base_completa_mex_full_v2, !is.na(LATENCIA_2)) %>% 
+  summarise(media_latencia_1 = round(mean(LATENCIA_1),1),
+            median_lat_1 = str_c(round(median(LATENCIA_1),1), " (", 
+                                 fivenum(LATENCIA_1)[2], "-",
+                                 fivenum(LATENCIA_1)[4], ")"),
+            sd_lat_1 = round(sd(LATENCIA_1),1),
+            media_latencia_2 = round(mean(LATENCIA_2),1),
+            median_lat_2 = str_c(round(median(LATENCIA_2),1), " (", 
+                                 fivenum(LATENCIA_2)[2], "-",
+                                 fivenum(LATENCIA_2)[4], ")"),
+            sd_lat_2 = round(sd(LATENCIA_2),1),
+            media_latencia_T = round(mean(LATENCIA_TOTAL),1),
+            median_lat_T = str_c(round(median(LATENCIA_TOTAL),1), " (", 
+                                 fivenum(LATENCIA_TOTAL)[2], "-",
+                                 fivenum(LATENCIA_TOTAL)[4], ")"),
+            sd_lat_T = round(sd(LATENCIA_TOTAL),1)))
+
+
+#TESTERS ACCORDING TO CLASSIFICATION
+#Colombia
+table(base_colombia_v1$timing_testing)
+table(base_colombia_v1$timing_testing)/nrow(base_colombia_v1)
+#Mexico
+table(base_completa_mex_full_v2$TIMING_TESTING)
+table(base_completa_mex_full_v2$TIMING_TESTING)/nrow(base_completa_mex_full_v2)
+
+#SPEED OF TEST RESULTS ACCORDING TO CLASSIFICATION
+#Colombia
+table(base_colombia_v1$timing_result)
+table(base_colombia_v1$timing_result)/nrow(base_colombia_v1)
+#Mexico
+table(base_completa_mex_full_v2$TIMING_RESULT)
+table(base_completa_mex_full_v2$TIMING_RESULT)/nrow(base_completa_mex_full_v2)
+
+#TOTAL LATENCY ACCORDING TO CLASSIFICATION
+#Colombia
+table(base_colombia_v1$timing_global)
+table(base_colombia_v1$timing_global)/nrow(base_colombia_v1)
+#Mexico
+table(base_completa_mex_full_v2$TIMING_GLOBAL)
+table(base_completa_mex_full_v2$TIMING_GLOBAL)/nrow(base_completa_mex_full_v2)
+
+
+
+#Mexico mean times by quintiles
+group_by(base_completa_mex_full_v2,QUINTIL_IAM_MUNICIPIO) %>% 
+      summarise(LATENCIA_1_MEDIA = round(mean(LATENCIA_1),1),
+                LATENCIA_1_SD = round(sd(LATENCIA_1), 1),
+                LATENCIA_1_MEDIANA = str_c(round(median(LATENCIA_1),1), " (", 
+                                 fivenum(LATENCIA_1)[2], "-",
+                                 fivenum(LATENCIA_1)[4], ")"),
+                LATENCIA_2_MEDIA = round(mean(LATENCIA_2, na.rm = T),1),
+                LATENCIA_2_SD = round(sd(LATENCIA_2, na.rm = T),1),
+                LATENCIA_2_MEDIAN = str_c(round(median(LATENCIA_2, na.rm = T),1), " (", 
+                                 fivenum(LATENCIA_2, na.rm = T)[2], "-",
+                                 fivenum(LATENCIA_2, na.rm = T)[4], ")"),
+                LATENCIA_T_MEDIA = round(mean(LATENCIA_TOTAL, na.rm = T),1),
+                LATENCIA_T_SD = round(sd(LATENCIA_TOTAL, na.rm = T),1),
+                LATENCIA_T_MEDIAN = str_c(round(median(LATENCIA_TOTAL, na.rm = T),1), " (", 
+                                 fivenum(LATENCIA_TOTAL, na.rm = T)[2], "-",
+                                 fivenum(LATENCIA_TOTAL, na.rm = T)[4], ")"))
+
+#COLOMBIA mean times by quintiles
+base_colombia_v1 %>% 
+  group_by(IPM_quintil) %>% 
+  summarise(latencia_1_media = round(mean(latencia_1),1),
+                latencia_1_sd = round(sd(latencia_1), 1),
+                latencia_1_mediana = str_c(round(median(latencia_1),1), " (", 
+                                 fivenum(latencia_1)[2], "-",
+                                 fivenum(latencia_1)[4], ")"),
+                latencia_2_media = round(mean(latencia_2, na.rm = T),1),
+                latencia_2_sd = round(sd(latencia_1, na.rm = T),1),
+                latencia_2_mediana = str_c(round(median(latencia_2),1), " (", 
+                                 fivenum(latencia_2)[2], "-",
+                                 fivenum(latencia_2)[4], ")"),
+                latencia_t_media = round(mean(latencia_total, na.rm = T),1),
+                latencia_t_sd = round(sd(latencia_total, na.rm = T),1),
+                latencia_t_mediana = str_c(round(median(latencia_total),1), " (", 
+                                 fivenum(latencia_total)[2], "-",
+                                 fivenum(latencia_total)[4], ")"))
+
+#Were are antigen tests preferably performed
+table(CUANTIL_MUNICIPIO = base_completa_mex_full_v2$QUINTIL_IAM_MUNICIPIO,
+       TOMO_ANTIGENO = base_completa_mex_full_v2$TOMA_MUESTRA_ANTIGENO)
+
+table(CUANTIL_MUNICIPIO = base_completa_mex_full_v2$QUINTIL_IAM_MUNICIPIO[base_completa_mex_full_v2$TOMA_MUESTRA_ANTIGENO==1],
+       TOMO_ANTIGENO = base_completa_mex_full_v2$TOMA_MUESTRA_ANTIGENO[base_completa_mex_full_v2$TOMA_MUESTRA_ANTIGENO==1])/sum(base_completa_mex_full_v2$TOMA_MUESTRA_ANTIGENO==1)
+
+#Total sum of latency two
+sum(base_colombia_v1$latencia_2)
+sum(base_colombia_v1$latencia_2)/nrow(base_colombia_v1)
+sum(base_completa_mex_full_v2$LATENCIA_2, na.rm = T)
+sum(base_completa_mex_full_v2$LATENCIA_2, na.rm = T)/nrow(base_completa_mex_full_v2)
+
+#Time saved with antigen tests
+#Colombia
+
+#Mexico
+(sum(base_completa_mex_full_v2$RESULTADO==1)*.1)*12
+
+filter(base_completa_mex_full_v2, RESULTADO == 1&LATENCIA_1 <=10) %>%
+  mutate(periodo_infeccioso = if_else(LATENCIA_TOTAL <=10, LATENCIA_TOTAL, 10),
+         infecciosidad_no_detectada = periodo_infeccioso-LATENCIA_1) %>% 
+  summarise(suma_dias_infecciosos = sum(infecciosidad_no_detectada))
+
+5633261/1787732
+  
+```
+
+
+
